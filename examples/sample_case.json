@@ -1,0 +1,20 @@
+{
+  "question_for_arbitration": "Should the respondent return the $3,500 deposit?",
+  "argument": "The contract required return of the deposit within 30 days of termination. It has been 90 days and the deposit has not been returned.",
+  "financial_demand_usd": "3500.00",
+  "other_relief": "Return of any project files.",
+  "evidence_demands": "The respondent's bank record showing receipt of the $3,500 deposit.",
+  "respondent_type": "individual",
+  "respondent_first_name": "Jordan",
+  "respondent_last_name": "Chen",
+  "respondent_email": "REPLACE_WITH_A_REAL_INBOX_YOU_CONTROL",
+  "respondent_street_address": "12 Example St",
+  "respondent_city": "Austin",
+  "respondent_state": "TX",
+  "respondent_zipcode": "78701",
+  "claimant_street_address": "800 Example Ave",
+  "claimant_city": "Denver",
+  "claimant_state": "CO",
+  "claimant_zipcode": "80202",
+  "claimant_affirmation": "true"
+}

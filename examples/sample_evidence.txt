@@ -1,0 +1,8 @@
+Deposit receipt (sample evidence)
+
+Date: 1 March 2026
+From: Alex Rivera
+To: Jordan Chen
+Amount: $3,500.00 USD
+Memo: Refundable project deposit per Independent Contractor Agreement §2
+Method: ACH

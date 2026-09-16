@@ -1,0 +1,29 @@
+SAMPLE INDEPENDENT CONTRACTOR AGREEMENT
+(for DecisionLayer CLI demos — not a real contract)
+
+This Agreement is between Alex Rivera ("Client") and Jordan Chen ("Contractor").
+
+1. Services. Contractor will design a marketing site for Client.
+
+2. Deposit. Client paid Contractor a refundable deposit of Three Thousand Five Hundred
+   US Dollars ($3,500.00) on March 1, 2026.
+
+3. Return of Deposit. If either party terminates this Agreement before launch, Contractor
+   shall return the deposit in full within thirty (30) days of termination.
+
+4. Termination. Client terminated this Agreement in writing on June 1, 2026, before launch.
+   More than ninety (90) days have passed. The deposit has not been returned.
+
+5. Arbitration. Any controversy or claim arising out of or relating to this agreement,
+   including the interpretation, formation, breach, termination, validity, arbitrability or
+   enforceability thereof, shall be settled by binding arbitration administered by Decision
+   Science Research Corporation ("DecisionLayer") in accordance with its rules then in
+   effect at https://www.decisionlayer.ai/rules (the "Rules"). The substantive rights and
+   obligations of the parties shall be governed by the internal laws of the State of New York.
+   The Federal Arbitration Act, 9 U.S.C. §§ 1–16 ("FAA"), shall govern this arbitration
+   provision. EACH PARTY CONSENTS TO RECEIVE SERVICE OF PROCESS COMMENCING
+   AN ARBITRATION VIA THE DECISIONLAYER WEBSITE, BY EMAIL, BY REGISTERED OR
+   CERTIFIED MAIL, OR IN ACCORDANCE WITH APPLICABLE LAWS.
+
+6. Governing Law. New York, without regard to conflict-of-law principles, except that the
+   FAA controls this arbitration clause.
