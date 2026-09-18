@@ -140,6 +140,34 @@ def config_show(ctx: typer.Context) -> None:
     _run(ctx, work)
 
 
+def _save_key(runtime: Runtime, target: str, key: str, *, check: bool) -> Path:
+    if not key.startswith("dvarb_"):
+        typer.echo("Warning: DecisionLayer keys normally start with dvarb_.", err=True)
+    if check:
+        with DecisionLayerClient(key, runtime.settings.base_url) as client:
+            client.list_cases(limit=1)
+    return save_api_key(target, key, runtime.settings.base_url)
+
+
+def _login_work(
+    ctx: typer.Context,
+    profile: Optional[str],
+    api_key: Optional[str],
+    skip_check: bool,
+) -> None:
+    def work(runtime: Runtime) -> None:
+        target = profile or runtime.profile
+        key = api_key or typer.prompt("API key", hide_input=True)
+        path = _save_key(runtime, target, key, check=not skip_check)
+        emit(
+            runtime.json_mode,
+            {"saved": str(path), "profile": target},
+            lambda d: typer.echo(f"Saved {d['profile']} key to {d['saved']}"),
+        )
+
+    _run(ctx, work)
+
+
 @config_app.command("set-key")
 def config_set_key(
     ctx: typer.Context,
@@ -150,22 +178,26 @@ def config_set_key(
         help="Profile to save (default, claimant, respondent). Defaults to the global --profile.",
     ),
     api_key: Optional[str] = typer.Option(None, "--api-key", help="If omitted, you will be prompted."),
+    skip_check: bool = typer.Option(False, "--skip-check", help="Save without calling GET /api/v1/cases."),
 ) -> None:
-    """Save an API key to the user config file."""
+    """Save an API key to the user config file. Same as `dl login`."""
+    _login_work(ctx, profile, api_key, skip_check)
 
-    def work(runtime: Runtime) -> None:
-        target = profile or runtime.profile
-        key = api_key or typer.prompt("API key", hide_input=True)
-        if not key.startswith("dvarb_"):
-            typer.echo("Warning: DecisionLayer keys normally start with dvarb_.", err=True)
-        path = save_api_key(target, key, runtime.settings.base_url)
-        emit(
-            runtime.json_mode,
-            {"saved": str(path), "profile": target},
-            lambda d: typer.echo(f"Saved {d['profile']} key to {d['saved']}"),
-        )
 
-    _run(ctx, work)
+@app.command("login")
+def login(
+    ctx: typer.Context,
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Profile to save (default, claimant, respondent). Defaults to the global --profile.",
+    ),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="If omitted, you will be prompted."),
+    skip_check: bool = typer.Option(False, "--skip-check", help="Save without calling GET /api/v1/cases."),
+) -> None:
+    """Save an API key under a profile. Checks it against GET /api/v1/cases unless --skip-check."""
+    _login_work(ctx, profile, api_key, skip_check)
 
 
 @config_app.command("set-base-url")
@@ -205,7 +237,7 @@ def consent_create(
     claimant_contact_last_name: str = typer.Option("", "--claimant-contact-last-name"),
     contract: list[Path] = typer.Option([], "--contract", help="Repeatable contract_files."),
     supporting: list[Path] = typer.Option([], "--supporting", help="Repeatable supporting_documents."),
-    from_json: Optional[Path] = typer.Option(None, "--from-json", help="JSON object merged into form fields."),
+    from_json: Optional[Path] = typer.Option(None, "--from-json", "--from", help="JSON object merged into form fields."),
     via_tickets: bool = typer.Option(False, "--via-tickets", help="Use POST /api/v1/uploads instead of multipart files."),
 ) -> None:
     """Create a consent case in ready_to_sign, then sign/pay on the web."""
@@ -314,7 +346,7 @@ def case_create(
     zipcode: str = typer.Option("", "--zip"),
     title: str = typer.Option("", "--title"),
     claimant_affirmation: str = typer.Option("true", "--affirmation", help="Must be true to file."),
-    from_json: Optional[Path] = typer.Option(None, "--from-json"),
+    from_json: Optional[Path] = typer.Option(None, "--from-json", "--from", help="JSON object merged into form fields."),
     via_tickets: bool = typer.Option(False, "--via-tickets"),
 ) -> None:
     """File a contract-clause case. Lands in awaiting_signature; finish on action_url."""

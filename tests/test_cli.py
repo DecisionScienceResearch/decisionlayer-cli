@@ -11,6 +11,21 @@ def test_help():
     assert "consent" in result.output
     assert "case" in result.output
     assert "response" in result.output
+    assert "login" in result.output
+
+
+def test_login_help():
+    result = runner.invoke(app, ["login", "--help"])
+    assert result.exit_code == 0
+    assert "profile" in result.output.lower()
+    assert "skip-check" in result.output
+
+
+def test_case_create_help_accepts_from_alias():
+    result = runner.invoke(app, ["case", "create", "--help"])
+    assert result.exit_code == 0
+    assert "--from" in result.output
+    assert "--from-json" in result.output
 
 
 def test_version():

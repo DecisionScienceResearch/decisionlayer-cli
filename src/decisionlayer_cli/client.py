@@ -30,7 +30,7 @@ class DecisionLayerClient:
             raise ConfigError(
                 "No API key configured. Create one at "
                 "https://www.decisionlayer.ai/settings/api-keys and run "
-                "`dl config set-key` or set DECISIONLAYER_API_KEY."
+                "`dl login --profile claimant` or set DECISIONLAYER_API_KEY."
             )
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(
