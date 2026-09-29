@@ -1,4 +1,4 @@
-"""DecisionLayer API example: create a consent arbitration case.
+"""Archwares™ vendored DecisionLayer example: create a consent arbitration case.
 
 The guide at /api/create-a-consent-case hardcodes API_KEY and
 BASE_URL = https://www.decisionlayer.ai. This copy reads

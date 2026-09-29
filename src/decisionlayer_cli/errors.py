@@ -1,4 +1,4 @@
-"""Error types matching DecisionLayer's documented JSON error envelope."""
+"""Archwares™ error types for the DecisionLayer JSON error envelope."""
 
 from __future__ import annotations
 

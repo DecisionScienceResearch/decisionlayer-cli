@@ -1,5 +1,7 @@
 # DecisionLayer CLI (`dl`)
 
+Built by [Archwares™](https://www.archwares.com).
+
 A command-line client for the [DecisionLayer](https://www.decisionlayer.ai) public API. File an arbitration case as the **claimant** and respond as the **respondent**, each with their own API key.
 
 - Python 3.11+
@@ -150,7 +152,7 @@ dl -p claimant response list CASE_ID
 dl -p respondent case watch CASE_ID --until-action
 ```
 
-When status is `decided`, both parties read the award on the web (`dl case open CASE_ID --view`). The API has no decision JSON.
+When status is `decided`, read the award with `dl case decision CASE_ID`. `view_url` is the same answer on the web. A 404 means it is not published yet.
 
 ## Consent cases (no pre-existing arbitration clause)
 
@@ -170,7 +172,9 @@ dl -p claimant consent list
 dl -p claimant consent get CONSENT_ID
 ```
 
-Starts in `ready_to_sign`. Claimant signs and pays at the printed `sign_url` (filing fee plus a $20 consent letter). The respondent accepts or rejects **on the website**. There is no consent-respond API.
+A live key starts in `ready_to_sign`. The claimant signs with `dl consent sign`, then pays at `action_url` (filing fee plus a $20 consent letter). The respondent accepts or rejects with `dl consent accept` or `dl consent reject --yes`, then signs with `dl consent sign`.
+
+A test key (`dvarb_test_...` from `/settings/test-api-keys`) records signature and payment as already complete, so create lands in `paid` and `action_url` is empty. `dl consent complete-respondent` then claims, accepts, and signs in one call. That command rejects a live key.
 
 ## Commands
 
@@ -213,4 +217,4 @@ Global options: `-p`/`--profile`, `--api-key`, `--base-url`, `--json`. `--via-ti
 
 ## License
 
-MIT. Independent client. Not affiliated with Decision Science Research Corporation. Do not commit API keys.
+MIT. Copyright 2026 Archwares™. Independent client. Not affiliated with Decision Science Research Corporation. Do not commit API keys.

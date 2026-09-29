@@ -1,4 +1,4 @@
-"""DecisionLayer public API client (v1)."""
+"""Archwares™ HTTP client for the DecisionLayer public API (v1)."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class DecisionLayerClient:
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
-                "User-Agent": f"decisionlayer-cli/{__version__}",
+                "User-Agent": f"Archwares-decisionlayer-cli/{__version__}",
             },
             timeout=timeout,
             follow_redirects=True,

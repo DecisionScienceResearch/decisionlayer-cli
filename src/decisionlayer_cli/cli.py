@@ -1,4 +1,4 @@
-"""Typer entrypoint and all user-facing commands."""
+"""Archwares™ command-line client for the DecisionLayer API."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from decisionlayer_cli.output import (
 
 app = typer.Typer(
     name="decisionlayer",
-    help="File, track, and respond to DecisionLayer arbitration cases as claimant or respondent.",
+    help="Archwares™ client. File, track, and respond to DecisionLayer arbitration cases as claimant or respondent.",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
     add_completion=False,
@@ -78,7 +78,7 @@ def _runtime(ctx: typer.Context) -> Runtime:
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"decisionlayer-cli {__version__}")
+        typer.echo(f"decisionlayer-cli {__version__}  ·  Archwares™")
         raise typer.Exit()
 
 
@@ -302,7 +302,10 @@ def consent_create(
         }
         fields.update(_load_json_object(from_json))
         fields = _pick(fields, CONSENT_FIELDS)
-        _require_fields(fields, ["question_for_arbitration", "respondent_first_name", "respondent_email"])
+        _require_fields(
+            fields,
+            ["question_for_arbitration", "respondent_first_name", "respondent_last_name", "respondent_email"],
+        )
         with runtime.client() as client:
             payload = client.create_consent_case(
                 fields,
@@ -498,7 +501,23 @@ def case_create(
         }
         fields.update(_load_json_object(from_json))
         fields = _pick(fields, CASE_FIELDS)
-        _require_fields(fields, ["question_for_arbitration", "argument", "respondent_first_name", "respondent_email"])
+        _require_fields(
+            fields,
+            [
+                "question_for_arbitration",
+                "argument",
+                "respondent_first_name",
+                "respondent_email",
+                "respondent_street_address",
+                "respondent_city",
+                "respondent_state",
+                "respondent_zipcode",
+                "claimant_street_address",
+                "claimant_city",
+                "claimant_state",
+                "claimant_zipcode",
+            ],
+        )
         if contract is None and not via_tickets:
             raise ConfigError(
                 "Attach the governing contract with --contract (pdf/docx/rtf/txt), "
@@ -628,7 +647,7 @@ def case_watch(
     def work(runtime: Runtime) -> None:
         last: dict[str, Any] | None = None
         with runtime.client() as client:
-            for _ in range(max_polls):
+            for poll in range(max_polls):
                 case = client.get_case(case_id)
                 last = case
                 if not runtime.json_mode:
@@ -642,7 +661,8 @@ def case_watch(
                     break
                 if not until and not until_action and case.get("status") == "decided":
                     break
-                time.sleep(interval)
+                if poll + 1 < max_polls:
+                    time.sleep(interval)
             else:
                 if last is not None and not runtime.json_mode:
                     typer.echo("Still in progress. Re-run watch, or open view_url / action_url.")
@@ -759,6 +779,8 @@ def upload_sessions(
         for path in files:
             if not path.is_file():
                 raise FileNotFoundError(path)
+            if path.stat().st_size <= 0:
+                raise ConfigError(f"{path} is empty; the upload API requires size > 0.")
             item = {
                 "filename": path.name,
                 "size": path.stat().st_size,
@@ -1073,7 +1095,7 @@ def simulation_watch(
     def work(runtime: Runtime) -> None:
         last: dict[str, Any] | None = None
         with runtime.client() as client:
-            for _ in range(max_polls):
+            for poll in range(max_polls):
                 simulation = client.get_simulation(simulation_id)
                 last = simulation
                 status = simulation.get("status")
@@ -1081,7 +1103,8 @@ def simulation_watch(
                     typer.echo(f"{status}")
                 if status in {"ready", "failed"}:
                     break
-                time.sleep(interval)
+                if poll + 1 < max_polls:
+                    time.sleep(interval)
             else:
                 if not runtime.json_mode:
                     typer.echo("Still running. Re-run `dl simulation watch` with the same id.")

@@ -1,5 +1,7 @@
 # DecisionLayer API: what was confusing, and what would help
 
+Prepared by Archwares™.
+
 Notes from building `decisionlayer-cli` against the public v1 API, the Swagger at `/api/v1/openapi.json`, and the two Python guides:
 
 - https://www.decisionlayer.ai/api/create-a-consent-case

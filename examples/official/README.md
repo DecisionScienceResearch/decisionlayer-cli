@@ -1,6 +1,6 @@
 # Official API samples
 
-These are the Python scripts from the DecisionLayer guides, vendored so they can be run from this repo.
+Archwares™ vendored the Python scripts from the DecisionLayer guides so they can be run from this repo.
 
 The copies published on the site set `API_KEY = "PASTE_YOUR_KEY_HERE"` and `BASE_URL = "https://www.decisionlayer.ai"`, including on the staging guides. These copies read the environment instead:
 

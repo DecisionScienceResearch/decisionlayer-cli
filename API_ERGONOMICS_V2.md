@@ -1,5 +1,7 @@
 # DecisionLayer API: staging review (28 Sep 2026)
 
+Prepared by Archwares™.
+
 This is the second pass. [API_ERGONOMICS.md](API_ERGONOMICS.md) is the 16 Sep production audit and stays as it was. The notes below start from the staging OpenAPI and the three guide pages on 28 Sep 2026. On 29 Sep 2026 the CLI and the three official samples were run against `https://staging.decisionlayer.ai`. Contract and consent calls used test keys. The simulation used a production key. No card was charged.
 
 ## Live test-key filings, 29 Sep 2026
@@ -144,8 +146,8 @@ In the order a client actually hits them:
 8. Say on the contract guide what a test key skips. The 29 Sep filing recorded signature, payment, and identity as complete, showed no checkout, and put the respondent on the case without `POST /claim`. The respondent `next_action` was still `sign_terms`, a SignWell URL was returned, and round 1 was accepted without opening it. The case then went to `in_review` instead of round 2. Document whether that one-round path is only for test filings.
 9. Return `arbitration_case_id` on a fully executed consent request if that handoff exists. The 29 Sep `fully_executed` object did not have one. Consent ids use the prefix `creq_`.
 10. Make `GET /events` either a real history or say it keeps only the latest event per resource. A second poll with the same `since` dropped the earlier `case.updated`.
-11. Return `contract_file_paths` as an array. It arrived as a string of JSON.
-12. On an unpublished decision, the 404 details are already clear. `reason` was omitted, which matches "reason is only for party 404s" and disagrees with any prose that says this 404 sets `reason`.
+11. Return `contract_file_paths` as an array. It arrived as a string of JSON. `POST /cases` rejects a create that omits either party's street, city, state, or zip, even though those fields are not marked required. `POST /consent-cases` rejects a missing `respondent_last_name` the same way.
+12. On an unpublished decision, the 404 details are already clear and `reason` was omitted. A missing simulation id did return `reason: not_found`. A missing consent id did not. A bad claim code is 403, "The verification code was not accepted," not a 404.
 
 ## What already works on the page
 

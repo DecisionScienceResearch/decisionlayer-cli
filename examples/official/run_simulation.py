@@ -1,4 +1,4 @@
-"""DecisionLayer API example: run a simulation in one request.
+"""Archwares™ vendored DecisionLayer example: run a simulation in one request.
 
 The guide at /api/run-a-simulation hardcodes a production URL and a
 constant API key. This copy reads DECISIONLAYER_API_KEY and

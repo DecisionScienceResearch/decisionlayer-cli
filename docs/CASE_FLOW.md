@@ -1,6 +1,6 @@
 # Case flows
 
-See also [API_ERGONOMICS.md](../API_ERGONOMICS.md) and [API_ERGONOMICS_V2.md](../API_ERGONOMICS_V2.md).
+Archwares™ notes for the DecisionLayer CLI. See also [API_ERGONOMICS.md](../API_ERGONOMICS.md) and [API_ERGONOMICS_V2.md](../API_ERGONOMICS_V2.md).
 
 Staging origin: `https://staging.decisionlayer.ai`. Production origin: `https://www.decisionlayer.ai`.
 

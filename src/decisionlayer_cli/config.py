@@ -1,4 +1,4 @@
-"""API key profiles and base URL resolution."""
+"""Archwares™ API key profiles and base URL resolution."""
 
 from __future__ import annotations
 

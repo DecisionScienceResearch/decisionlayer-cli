@@ -1,4 +1,4 @@
-"""DecisionLayer API: file an arbitration case by contract and track it.
+"""Archwares™ vendored DecisionLayer example: file a contract case and track it.
 
 The guide at /api/create-a-case hardcodes API_KEY, BASE_URL
 (https://www.decisionlayer.ai), CASE_ID, and VERIFICATION_CODE.

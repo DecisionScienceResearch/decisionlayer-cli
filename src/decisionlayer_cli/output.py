@@ -1,4 +1,4 @@
-"""Human-readable tables for CLI output."""
+"""Archwares™ terminal output for the DecisionLayer CLI."""
 
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ def render_consent_list(cases: list[dict[str, Any]]) -> None:
 
 def _consent_table(cases: list[dict[str, Any]], title: str) -> None:
     table = Table(title=title, show_lines=False)
-    table.add_column("ID")
+    table.add_column("ID", no_wrap=True)
     table.add_column("Status")
     table.add_column("Respondent")
     table.add_column("Demand")
@@ -181,7 +181,7 @@ def render_case_list(cases: list[dict[str, Any]]) -> None:
         console.print("No cases for this API key.")
         return
     table = Table(title=f"Cases ({len(cases)})")
-    table.add_column("ID")
+    table.add_column("ID", no_wrap=True)
     table.add_column("Status")
     table.add_column("Role")
     table.add_column("Turn")
@@ -276,7 +276,7 @@ def render_events(payload: dict[str, Any]) -> None:
         table.add_column("When")
         table.add_column("Type")
         table.add_column("Resource")
-        table.add_column("ID")
+        table.add_column("ID", no_wrap=True)
         for event in events:
             table.add_row(
                 str(event.get("occurred_at") or ""),
