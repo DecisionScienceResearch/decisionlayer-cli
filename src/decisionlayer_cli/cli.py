@@ -6,7 +6,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import typer
 
@@ -19,10 +19,17 @@ from decisionlayer_cli.output import (
     render_case,
     render_case_created,
     render_case_list,
+    render_consent,
     render_consent_created,
     render_consent_list,
+    render_decision,
     render_error,
+    render_events,
+    render_me,
+    render_page_cursor,
     render_response_created,
+    render_signing,
+    render_simulation,
     render_thread,
     render_uploads,
 )
@@ -41,6 +48,7 @@ response_app = typer.Typer(help="Turn-based filings on a contract-clause case.")
 upload_app = typer.Typer(help="Two-step GCS upload tickets.")
 flow_app = typer.Typer(help="Guided claimant and respondent walkthroughs.")
 config_app = typer.Typer(help="Store API keys and the base URL.")
+simulation_app = typer.Typer(help="One-shot simulations. Requires a production API key, not a test key.")
 
 app.add_typer(consent_app, name="consent")
 app.add_typer(case_app, name="case")
@@ -48,6 +56,7 @@ app.add_typer(response_app, name="response")
 app.add_typer(upload_app, name="upload")
 app.add_typer(flow_app, name="flow")
 app.add_typer(config_app, name="config")
+app.add_typer(simulation_app, name="simulation")
 
 
 @dataclass
@@ -107,6 +116,7 @@ def _run(ctx: typer.Context, fn: Any) -> None:
                         "status": exc.status_code,
                         "message": exc.message,
                         "details": exc.details,
+                        "reason": exc.reason or None,
                         "hint": exc.hint,
                     }
                 }
@@ -200,6 +210,35 @@ def login(
     _login_work(ctx, profile, api_key, skip_check)
 
 
+@app.command("whoami")
+def whoami(ctx: typer.Context) -> None:
+    """Show the account behind the active API key (GET /api/v1/me)."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            principal = client.get_me()
+        emit(runtime.json_mode, principal, render_me)
+
+    _run(ctx, work)
+
+
+@app.command("events")
+def events(
+    ctx: typer.Context,
+    since: Optional[str] = typer.Option(None, "--since", help="ISO time. Ignored when --cursor is set."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="next_cursor from the previous page."),
+    limit: int = typer.Option(50, "--limit", min=1, max=200),
+) -> None:
+    """Poll the change feed (GET /api/v1/events) instead of every case."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            payload = client.list_events(since=since, cursor=cursor, limit=limit)
+        emit(runtime.json_mode, payload, render_events)
+
+    _run(ctx, work)
+
+
 @config_app.command("set-base-url")
 def config_set_base_url(
     ctx: typer.Context,
@@ -239,6 +278,7 @@ def consent_create(
     supporting: list[Path] = typer.Option([], "--supporting", help="Repeatable supporting_documents."),
     from_json: Optional[Path] = typer.Option(None, "--from-json", "--from", help="JSON object merged into form fields."),
     via_tickets: bool = typer.Option(False, "--via-tickets", help="Use POST /api/v1/uploads instead of multipart files."),
+    idempotency_key: Optional[str] = typer.Option(None, "--idempotency-key", help="Reuse this token to replay the same create. A new token is used when omitted."),
 ) -> None:
     """Create a consent case in ready_to_sign, then sign/pay on the web."""
 
@@ -269,6 +309,7 @@ def consent_create(
                 contract_files=contract,
                 supporting_documents=supporting,
                 via_tickets=via_tickets,
+                idempotency_key=idempotency_key,
             )
         emit(runtime.json_mode, payload, render_consent_created)
 
@@ -276,31 +317,98 @@ def consent_create(
 
 
 @consent_app.command("list")
-def consent_list(ctx: typer.Context) -> None:
+def consent_list(
+    ctx: typer.Context,
+    action_required: bool = typer.Option(False, "--action-required", help="Only consent requests waiting on this key."),
+    status: Optional[str] = typer.Option(None, "--status"),
+    limit: int = typer.Option(50, "--limit", min=1, max=200),
+    offset: int = typer.Option(0, "--offset", min=0),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="X-Next-Cursor from the previous page."),
+) -> None:
     """List consent requests where this key is claimant or named respondent."""
 
     def work(runtime: Runtime) -> None:
+        _reject_cursor_offset(cursor, offset)
         with runtime.client() as client:
-            cases = client.list_consent_cases()
-        emit(runtime.json_mode, cases, render_consent_list)
+            cases = client.list_consent_cases(
+                action_required=True if action_required else None,
+                status=status,
+                limit=limit,
+                offset=offset,
+                cursor=cursor,
+            )
+        _emit_page(runtime, cases, "consent_cases", render_consent_list)
 
     _run(ctx, work)
 
 
 @consent_app.command("get")
 def consent_get(ctx: typer.Context, consent_id: str = typer.Argument(...)) -> None:
-    """Find one consent case by id (the API has no retrieve-by-id endpoint)."""
+    """Fetch one consent case by id."""
 
     def work(runtime: Runtime) -> None:
         with runtime.client() as client:
-            cases = client.list_consent_cases()
-        match = next((item for item in cases if str(item.get("id")) == consent_id), None)
-        if match is None:
-            raise ConfigError(
-                f"Consent case {consent_id!r} is not in GET /api/v1/consent-cases for this key. "
-                "There is no GET /api/v1/consent-cases/{id}."
-            )
-        emit(runtime.json_mode, match, lambda c: render_consent_list([c]))
+            case = client.get_consent_case(consent_id)
+        emit(runtime.json_mode, case, render_consent)
+
+    _run(ctx, work)
+
+
+@consent_app.command("sign")
+def consent_sign(
+    ctx: typer.Context,
+    consent_id: str = typer.Argument(...),
+    open_browser: bool = typer.Option(False, "--open", help="Open the signing URL in a browser."),
+) -> None:
+    """Return a signing URL when next_action is sign_terms."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            session = client.sign_consent_case(consent_id)
+        _maybe_open(open_browser, session.get("signing_url"))
+        emit(runtime.json_mode, session, render_signing)
+
+    _run(ctx, work)
+
+
+@consent_app.command("accept")
+def consent_accept(ctx: typer.Context, consent_id: str = typer.Argument(...)) -> None:
+    """Accept a consent case as the named respondent."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            case = client.accept_consent_case(consent_id)
+        emit(runtime.json_mode, case, render_consent)
+
+    _run(ctx, work)
+
+
+@consent_app.command("reject")
+def consent_reject(
+    ctx: typer.Context,
+    consent_id: str = typer.Argument(...),
+    yes: bool = typer.Option(False, "--yes", help="Required. Reject is terminal and emails the claimant."),
+) -> None:
+    """Reject a consent case. This ends the request and emails the claimant."""
+
+    def work(runtime: Runtime) -> None:
+        if not yes:
+            raise ConfigError("Reject is terminal. Re-run with --yes to email the claimant and close the request.")
+        with runtime.client() as client:
+            case = client.reject_consent_case(consent_id)
+        emit(runtime.json_mode, case, render_consent)
+
+    _run(ctx, work)
+
+
+@consent_app.command("complete-respondent")
+def consent_complete_respondent(ctx: typer.Context, consent_id: str = typer.Argument(...)) -> None:
+    """Test keys only: claim, accept, and sign in one call. The key email must match respondent_email."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            case = client.complete_test_consent_respondent(consent_id)
+        emit(runtime.json_mode, case, render_consent)
 
     _run(ctx, work)
 
@@ -348,6 +456,7 @@ def case_create(
     claimant_affirmation: str = typer.Option("true", "--affirmation", help="Must be true to file."),
     from_json: Optional[Path] = typer.Option(None, "--from-json", "--from", help="JSON object merged into form fields."),
     via_tickets: bool = typer.Option(False, "--via-tickets"),
+    idempotency_key: Optional[str] = typer.Option(None, "--idempotency-key", help="Reuse this token to replay the same create."),
 ) -> None:
     """File a contract-clause case. Lands in awaiting_signature; finish on action_url."""
 
@@ -401,6 +510,7 @@ def case_create(
                 contract_file=contract,
                 evidence=evidence,
                 via_tickets=via_tickets,
+                idempotency_key=idempotency_key,
             )
         emit(runtime.json_mode, payload, render_case_created)
 
@@ -414,18 +524,21 @@ def case_list(
     status: Optional[str] = typer.Option(None, "--status", help="draft, awaiting_signature, awaiting_payment, ..."),
     limit: int = typer.Option(50, "--limit", min=1, max=200),
     offset: int = typer.Option(0, "--offset", min=0),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="X-Next-Cursor from the previous page."),
 ) -> None:
-    """List contract-clause cases this key is a party to (newest first)."""
+    """List contract-clause cases this key is a party to (newest first). Simulations are excluded."""
 
     def work(runtime: Runtime) -> None:
+        _reject_cursor_offset(cursor, offset)
         with runtime.client() as client:
             cases = client.list_cases(
                 action_required=True if action_required else None,
                 status=status,
                 limit=limit,
                 offset=offset,
+                cursor=cursor,
             )
-        emit(runtime.json_mode, cases, render_case_list)
+        _emit_page(runtime, cases, "cases", render_case_list)
 
     _run(ctx, work)
 
@@ -449,7 +562,54 @@ def case_inbox(ctx: typer.Context) -> None:
     def work(runtime: Runtime) -> None:
         with runtime.client() as client:
             cases = client.list_cases(action_required=True)
-        emit(runtime.json_mode, cases, render_case_list)
+        _emit_page(runtime, cases, "cases", render_case_list)
+
+    _run(ctx, work)
+
+
+@case_app.command("claim")
+def case_claim(
+    ctx: typer.Context,
+    case_id: str = typer.Argument(...),
+    code: str = typer.Option(..., "--code", help="Verification code from the respondent notice. 1-32 characters."),
+) -> None:
+    """Claim a case as the respondent (POST /api/v1/cases/{id}/claim)."""
+
+    def work(runtime: Runtime) -> None:
+        if not code.strip() or len(code.strip()) > 32:
+            raise ConfigError("The verification code must be 1-32 characters.")
+        with runtime.client() as client:
+            case = client.claim_case(case_id, code.strip())
+        emit(runtime.json_mode, case, render_case)
+
+    _run(ctx, work)
+
+
+@case_app.command("sign")
+def case_sign(
+    ctx: typer.Context,
+    case_id: str = typer.Argument(...),
+    open_browser: bool = typer.Option(False, "--open", help="Open the signing URL in a browser."),
+) -> None:
+    """Return a signing URL for the party whose next action is sign_terms."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            session = client.sign_case(case_id)
+        _maybe_open(open_browser, session.get("signing_url"))
+        emit(runtime.json_mode, session, render_signing)
+
+    _run(ctx, work)
+
+
+@case_app.command("decision")
+def case_decision(ctx: typer.Context, case_id: str = typer.Argument(...)) -> None:
+    """Read the published award. A 404 means it is not published yet."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            award = client.get_decision(case_id)
+        emit(runtime.json_mode, award, render_decision)
 
     _run(ctx, work)
 
@@ -472,7 +632,10 @@ def case_watch(
                 case = client.get_case(case_id)
                 last = case
                 if not runtime.json_mode:
-                    typer.echo(f"{case.get('status')} turn={case.get('current_turn')} next={case.get('next_action')}")
+                    typer.echo(
+                        f"{case.get('status')} turn={case.get('current_turn')} "
+                        f"round={case.get('next_round')} next={case.get('next_action')}"
+                    )
                 if until and case.get("status") == until:
                     break
                 if until_action and case.get("action_required"):
@@ -541,6 +704,7 @@ def response_submit(
     counterclaim_other_relief: Optional[str] = typer.Option(None, "--counterclaim-other-relief"),
     counterclaim_file: list[Path] = typer.Option([], "--counterclaim-file"),
     via_tickets: bool = typer.Option(False, "--via-tickets"),
+    idempotency_key: Optional[str] = typer.Option(None, "--idempotency-key", help="Reuse this token to replay the same submit."),
 ) -> None:
     """Submit the current turn. The server infers the round from case state."""
 
@@ -556,7 +720,15 @@ def response_submit(
             fields["counterclaim_amount_usd"] = counterclaim_amount_usd
         if counterclaim_other_relief is not None:
             fields["counterclaim_other_relief"] = counterclaim_other_relief
+        file_fields = _response_file_fields(
+            via_tickets=via_tickets,
+            evidence=evidence,
+            evidence_response_files=evidence_response_file,
+            counterclaim_files=counterclaim_file,
+        )
         with runtime.client() as client:
+            case = client.get_case(case_id)
+            _ensure_accepted(case, list(fields) + file_fields)
             payload = client.create_response(
                 case_id,
                 fields,
@@ -564,6 +736,7 @@ def response_submit(
                 evidence_response_files=evidence_response_file,
                 counterclaim_files=counterclaim_file,
                 via_tickets=via_tickets,
+                idempotency_key=idempotency_key,
             )
         emit(runtime.json_mode, payload, render_response_created)
 
@@ -577,7 +750,7 @@ def response_submit(
 def upload_sessions(
     ctx: typer.Context,
     files: list[Path] = typer.Argument(..., help="Local files to describe."),
-    role: Optional[str] = typer.Option(None, "--role", help="Optional role copied onto each descriptor."),
+    role: Optional[str] = typer.Option(None, "--role", help="Ignored by the API. Kept so older commands do not fail."),
 ) -> None:
     """Create resumable upload sessions, PUT each file, and print tickets."""
 
@@ -658,9 +831,14 @@ def flow_claimant(
                     contract_files=[contract] if contract.is_file() else [],
                 )
                 emit(runtime.json_mode, payload, render_consent_created)
+                created = payload.get("case") or {}
+                if created.get("next_action") == "sign_terms" and created.get("id"):
+                    session = client.sign_consent_case(created["id"])
+                    if not runtime.json_mode:
+                        render_signing(session)
                 if not runtime.json_mode:
-                    typer.echo("\nNext: open sign_url, sign, pay the consent letter + filing fee on the dashboard.")
-                    typer.echo("The respondent is notified only after those web steps complete.")
+                    typer.echo("\nNext: open the signing URL, then pay on the dashboard if action_url asks for it.")
+                    typer.echo("A test key can finish the respondent side with `dl consent complete-respondent`.")
                 return
             if kind != "case":
                 raise ConfigError("--kind must be consent or case")
@@ -673,13 +851,14 @@ def flow_claimant(
                 evidence=[evidence] if evidence.is_file() else (),
             )
             emit(runtime.json_mode, payload, render_case_created)
+            case = payload.get("case") or {}
+            if case.get("next_action") == "sign_terms" and case.get("id"):
+                session = client.sign_case(case["id"])
+                if not runtime.json_mode:
+                    render_signing(session)
             if not runtime.json_mode:
-                typer.echo("\nNext web steps for the claimant (not API calls):")
-                typer.echo("  1. sign_terms")
-                typer.echo("  2. pay_filing_fee")
-                typer.echo("  3. verify_identity")
-                typer.echo("Then wait for the respondent to claim the case, sign terms, and file round 1.")
-                case = payload.get("case") or {}
+                typer.echo("\nAfter signing, payment and identity verification are still website steps unless a test key skips them.")
+                typer.echo("The respondent then claims with the emailed code, signs, and files round 1.")
                 if case.get("id"):
                     typer.echo(f"\nTrack with:\n  dl --profile claimant case watch {case['id']} --until awaiting_response")
 
@@ -698,9 +877,10 @@ def flow_respondent(
     counterclaim_argument: Optional[str] = typer.Option(None, "--counterclaim-argument"),
     counterclaim_amount_usd: Optional[str] = typer.Option(None, "--counterclaim-amount"),
     from_json: Optional[Path] = typer.Option(None, "--from-json", help="e.g. examples/sample_respondent_round1.json"),
+    verification_code: Optional[str] = typer.Option(None, "--code", help="Claim with this verification code when the case is not_claimed."),
     wait_for_web: bool = typer.Option(True, "--wait-for-web/--no-wait-for-web"),
 ) -> None:
-    """Load a claimed case as respondent, block on web sign/KYC if needed, then submit this turn."""
+    """Load a case as respondent, claim and sign if needed, then submit this turn."""
 
     def work(runtime: Runtime) -> None:
         extra = _load_json_object(from_json)
@@ -708,7 +888,13 @@ def flow_respondent(
         if not resolved_argument:
             raise ConfigError("Provide --argument or --from-json with an 'argument' field.")
         with runtime.client() as client:
-            case = client.get_case(case_id)
+            try:
+                case = client.get_case(case_id)
+            except APIError as exc:
+                if exc.reason == "not_claimed" and verification_code:
+                    case = client.claim_case(case_id, verification_code.strip())
+                else:
+                    raise
             if case.get("role") != "respondent" and not runtime.json_mode:
                 typer.echo(
                     f"Warning: this key's role on the case is {case.get('role')!r}, not respondent. "
@@ -716,14 +902,24 @@ def flow_respondent(
                     err=True,
                 )
             emit(runtime.json_mode, case, render_case)
+            if case.get("next_action") == "sign_terms":
+                session = client.sign_case(case_id)
+                if not runtime.json_mode:
+                    render_signing(session)
             while wait_for_web and case.get("next_action") in {"sign_terms", "pay_filing_fee", "verify_identity", "complete_form"}:
                 if runtime.json_mode:
                     break
                 typer.echo()
-                typer.echo(f"Complete {case.get('next_action')} at:\n{case.get('action_url') or case.get('view_url')}")
+                if case.get("next_action") == "sign_terms":
+                    typer.echo("Open the signing URL above, then press Enter.")
+                else:
+                    typer.echo(f"Complete {case.get('next_action')} at:\n{case.get('action_url') or case.get('view_url')}")
                 typer.prompt("Press Enter after finishing that web step", default="", show_default=False)
                 case = client.get_case(case_id)
                 emit(False, case, render_case)
+                if case.get("next_action") == "sign_terms":
+                    session = client.sign_case(case_id)
+                    render_signing(session)
             if case.get("status") != "awaiting_response" or case.get("current_turn") != case.get("role"):
                 raise ConfigError(
                     f"Not ready to submit. status={case.get('status')} current_turn={case.get('current_turn')} "
@@ -742,6 +938,7 @@ def flow_respondent(
                 fields["counterclaim_argument"] = resolved_counterclaim
             if resolved_amount is not None:
                 fields["counterclaim_amount_usd"] = resolved_amount
+            _ensure_accepted(case, list(fields) + _response_file_fields(via_tickets=False, evidence=evidence, evidence_response_files=evidence_response_file, counterclaim_files=[]))
             payload = client.create_response(
                 case_id,
                 fields,
@@ -767,6 +964,133 @@ def flow_status(ctx: typer.Context, case_id: str = typer.Argument(...)) -> None:
         render_case(case)
         typer.echo()
         render_thread(thread)
+
+    _run(ctx, work)
+
+
+@simulation_app.command("create")
+def simulation_create(
+    ctx: typer.Context,
+    question: Optional[str] = typer.Option(None, "--question"),
+    plaintiff_name: Optional[str] = typer.Option(None, "--plaintiff-name"),
+    respondent_name: Optional[str] = typer.Option(None, "--respondent-name"),
+    plaintiff_argument: Optional[str] = typer.Option(None, "--plaintiff-argument"),
+    respondent_argument: Optional[str] = typer.Option(None, "--respondent-argument"),
+    plaintiff_rebuttal: Optional[str] = typer.Option(None, "--plaintiff-rebuttal"),
+    respondent_rebuttal: Optional[str] = typer.Option(None, "--respondent-rebuttal"),
+    financial_demand_usd: str = typer.Option("0.00", "--demand"),
+    other_relief: str = typer.Option("", "--other-relief"),
+    respondent_email: str = typer.Option("", "--respondent-email"),
+    governing_contract: str = typer.Option("", "--governing-contract"),
+    contract: Optional[Path] = typer.Option(None, "--contract"),
+    plaintiff_documents: list[Path] = typer.Option([], "--plaintiff-document"),
+    respondent_documents: list[Path] = typer.Option([], "--respondent-document"),
+    plaintiff_rebuttal_documents: list[Path] = typer.Option([], "--plaintiff-rebuttal-document"),
+    respondent_rebuttal_documents: list[Path] = typer.Option([], "--respondent-rebuttal-document"),
+    from_json: Optional[Path] = typer.Option(None, "--from-json", "--from"),
+    via_tickets: bool = typer.Option(False, "--via-tickets"),
+    idempotency_key: Optional[str] = typer.Option(None, "--idempotency-key"),
+) -> None:
+    """Queue a simulation with a production API key. Test keys receive 403."""
+
+    def work(runtime: Runtime) -> None:
+        fields = {
+            "question_for_arbitration": question,
+            "plaintiff_name": plaintiff_name,
+            "respondent_name": respondent_name,
+            "plaintiff_argument": plaintiff_argument,
+            "respondent_argument": respondent_argument,
+            "plaintiff_rebuttal": plaintiff_rebuttal,
+            "respondent_rebuttal": respondent_rebuttal,
+            "financial_demand_usd": financial_demand_usd,
+            "other_relief": other_relief,
+            "respondent_email": respondent_email,
+            "governing_contract": governing_contract,
+        }
+        fields.update(_load_json_object(from_json))
+        fields = _pick(fields, SIMULATION_FIELDS)
+        _require_fields(
+            fields,
+            [
+                "question_for_arbitration",
+                "plaintiff_name",
+                "respondent_name",
+                "plaintiff_argument",
+                "respondent_argument",
+            ],
+        )
+        with runtime.client() as client:
+            payload = client.create_simulation(
+                fields,
+                contract_file=contract,
+                plaintiff_documents=plaintiff_documents,
+                respondent_documents=respondent_documents,
+                plaintiff_rebuttal_documents=plaintiff_rebuttal_documents,
+                respondent_rebuttal_documents=respondent_rebuttal_documents,
+                via_tickets=via_tickets,
+                idempotency_key=idempotency_key,
+            )
+        if not runtime.json_mode:
+            typer.echo("Production key required. Save this id. There is no list-simulations endpoint.")
+        emit(runtime.json_mode, payload, render_simulation)
+
+    _run(ctx, work)
+
+
+@simulation_app.command("get")
+def simulation_get(ctx: typer.Context, simulation_id: str = typer.Argument(...)) -> None:
+    """Poll one simulation owned by this production key."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            simulation = client.get_simulation(simulation_id)
+        emit(runtime.json_mode, simulation, render_simulation)
+
+    _run(ctx, work)
+
+
+@simulation_app.command("result")
+def simulation_result(ctx: typer.Context, simulation_id: str = typer.Argument(...)) -> None:
+    """Read the award once status is ready."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            award = client.get_simulation_result(simulation_id)
+        emit(runtime.json_mode, award, render_decision)
+
+    _run(ctx, work)
+
+
+@simulation_app.command("watch")
+def simulation_watch(
+    ctx: typer.Context,
+    simulation_id: str = typer.Argument(...),
+    interval: float = typer.Option(10.0, "--interval", help="Seconds between polls."),
+    max_polls: int = typer.Option(60, "--max-polls"),
+) -> None:
+    """Poll until the simulation is ready or failed, then print the award."""
+
+    def work(runtime: Runtime) -> None:
+        last: dict[str, Any] | None = None
+        with runtime.client() as client:
+            for _ in range(max_polls):
+                simulation = client.get_simulation(simulation_id)
+                last = simulation
+                status = simulation.get("status")
+                if not runtime.json_mode:
+                    typer.echo(f"{status}")
+                if status in {"ready", "failed"}:
+                    break
+                time.sleep(interval)
+            else:
+                if not runtime.json_mode:
+                    typer.echo("Still running. Re-run `dl simulation watch` with the same id.")
+            if last and last.get("status") == "ready":
+                award = client.get_simulation_result(simulation_id)
+                emit(runtime.json_mode, award, render_decision)
+                return
+        if last is not None:
+            emit(runtime.json_mode, last, render_simulation)
 
     _run(ctx, work)
 
@@ -798,6 +1122,78 @@ CONSENT_FIELDS = {
     "claimant_contact_first_name",
     "claimant_contact_last_name",
 }
+
+SIMULATION_FIELDS = {
+    "question_for_arbitration",
+    "plaintiff_name",
+    "respondent_name",
+    "plaintiff_argument",
+    "respondent_argument",
+    "plaintiff_rebuttal",
+    "respondent_rebuttal",
+    "financial_demand_usd",
+    "other_relief",
+    "respondent_email",
+    "governing_contract",
+}
+
+
+def _reject_cursor_offset(cursor: Optional[str], offset: int) -> None:
+    if cursor and offset:
+        raise ConfigError("Do not combine --cursor with a non-zero --offset.")
+
+
+def _emit_page(runtime: Runtime, items: Any, key: str, render: Any) -> None:
+    cursor = getattr(items, "next_cursor", None)
+    payload = {key: list(items), "next_cursor": cursor}
+
+    def draw(_payload: Any) -> None:
+        render(list(items))
+        render_page_cursor(cursor)
+
+    emit(runtime.json_mode, payload, draw)
+
+
+def _maybe_open(open_browser: bool, url: Any) -> None:
+    if open_browser and url:
+        import webbrowser
+
+        webbrowser.open(str(url))
+
+
+def _response_file_fields(
+    *,
+    via_tickets: bool,
+    evidence: Sequence[Path],
+    evidence_response_files: Sequence[Path],
+    counterclaim_files: Sequence[Path],
+) -> list[str]:
+    names: list[str] = []
+    if evidence:
+        names.append("evidence_tickets" if via_tickets else "evidence")
+    if evidence_response_files:
+        names.append("evidence_response_files_tickets" if via_tickets else "evidence_response_files")
+    if counterclaim_files:
+        names.append("counterclaim_files_tickets" if via_tickets else "counterclaim_files")
+    return names
+
+
+def _ensure_accepted(case: dict[str, Any], names: list[str]) -> None:
+    accepted = case.get("accepted_fields")
+    if not isinstance(accepted, list):
+        return
+    if not accepted:
+        raise ConfigError(
+            "No response round is open. "
+            f"status={case.get('status')} next_action={case.get('next_action')}."
+        )
+    blocked = [name for name in names if name not in accepted and name not in {"argument", "affirmation"}]
+    if blocked:
+        allowed = ", ".join(str(item) for item in accepted)
+        raise ConfigError(
+            f"Round {case.get('next_round')} does not accept: {', '.join(blocked)}. Accepted fields: {allowed}."
+        )
+
 
 CASE_FIELDS = {
     "question_for_arbitration",

@@ -1,41 +1,72 @@
 # Case flows
 
-See also [API_ERGONOMICS.md](../API_ERGONOMICS.md).
+See also [API_ERGONOMICS.md](../API_ERGONOMICS.md) and [API_ERGONOMICS_V2.md](../API_ERGONOMICS_V2.md).
+
+Staging origin: `https://staging.decisionlayer.ai`. Production origin: `https://www.decisionlayer.ai`.
+
+Auth: `Authorization: Bearer dvarb_...` from `/settings/api-keys`. Test keys (`dvarb_test_...`) come from `/settings/test-api-keys`. `GET /api/v1/me` names the account. Role is per case, not per key.
 
 ## Contract-clause (`/api/v1/cases`)
 
 ```text
 POST /cases
-  → awaiting_signature     claimant web: sign_terms
-  → awaiting_payment       claimant web: pay_filing_fee
-  → awaiting_identity_verification  claimant web: KYC
+  → awaiting_signature
+       POST /cases/{id}/sign   returns signing_url (does not complete the signature)
+       web: pay_filing_fee, then verify_identity
   → respondent notified
   → awaiting_response, current_turn=respondent
-       respondent web: claim + sign_terms
-       POST /responses  round 1 Answer
-       often verify_identity for respondent
+       POST /cases/{id}/claim  {verification_code}   if GET reason is not_claimed
+       POST /cases/{id}/sign
+       POST /responses  round 1   only accepted_fields
+       often verify_identity for the respondent
   → awaiting_response, current_turn=claimant
-       POST /responses  round 2 Reply
+       POST /responses  round 2
   → awaiting_response, current_turn=respondent
-       POST /responses  round 3 Response
-  → in_review / submitted / decided
-       open view_url (no GET /decision)
+       POST /responses  round 3
+  → decided
+       GET /cases/{id}/decision
 ```
 
 Public statuses: `draft`, `awaiting_signature`, `awaiting_payment`, `awaiting_identity_verification`, `in_review`, `awaiting_response`, `submitted`, `decided`.
 
 `next_action`: `complete_form` | `sign_terms` | `pay_filing_fee` | `verify_identity` | `respond`.
 
+`next_round` is 1, 2, or 3 while a response is open. `accepted_fields` is the allow-list for that round. Case 404s set `error.reason` to `not_found`, `not_a_party`, or `not_claimed`.
+
+`GET /events` is the change feed. `case.decided` means the decision endpoint will return the award.
+
+Send `Idempotency-Key` on create and on submit. Page lists with `cursor` (`X-Next-Cursor`). Do not combine `cursor` with a non-zero `offset`.
+
+Files under 8 MiB are multipart. At 8 MiB or larger, `POST /uploads`, PUT the bytes, then send the ticket field. Do not mix a file and a ticket on the same field. A `role` on the upload is ignored.
+
 ## Consent (`/api/v1/consent-cases`)
 
 ```text
 POST /consent-cases  →  ready_to_sign
-  web: sign + pay
-  → paid / respondent_notified / respondent_viewing
-  web: respondent accepts or rejects
+  POST /consent-cases/{id}/sign
+  web: pay, unless the key is a test key (already paid, action_url null)
+  → respondent
+       POST .../accept or POST .../reject
+       POST .../sign
+       or, test key only: POST .../respondent   (claim + accept + sign, no email)
   → respondent_rejected | fully_executed
 ```
 
-API today: create + list only.
+Statuses: `draft`, `awaiting_account`, `ready_to_sign`, `awaiting_signature`, `awaiting_payment`, `paid`, `respondent_notified`, `respondent_viewing`, `respondent_accepted`, `respondent_rejected`, `fully_executed`.
 
-Auth: `Authorization: Bearer dvarb_...` from https://www.decisionlayer.ai/settings/api-keys
+`next_action`: `sign_terms` | `pay_filing_fee` | `accept`. `accept` means accept or reject. `pay_filing_fee` is the website. `GET /consent-cases/{id}` reads one. List with `cursor`.
+
+File fields are plural: `contract_files`, `contract_files_tickets`.
+
+## Simulation (`/api/v1/simulations`)
+
+Production keys only. Test keys receive 403.
+
+```text
+POST /simulations   one multipart body with both sides
+  → processing | retrying
+  → ready     GET /simulations/{id}/result
+  → failed    message on the status object
+```
+
+There is no list endpoint. The id is prefixed `case_` and does not appear in `GET /cases`. Poll about every 10 seconds. `page_url` needs a signed-in browser. `pdf_url` is temporary. `text` remains.

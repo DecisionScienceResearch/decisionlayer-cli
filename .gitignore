@@ -21,6 +21,10 @@ Thumbs.db
 .pytest_cache/
 .decisionlayer/
 *.local.json
+
+# Internal engagement notes. Not part of the public CLI.
+docs/PHASE2_WORK.md
+Entire Decision Layer Context.txt
 /sample_contract.txt
 /sample_evidence.txt
 /sample_reply_evidence.txt

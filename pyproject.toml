@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decisionlayer-cli"
-version = "1.0.0"
+version = "1.1.0"
 description = "CLI for the DecisionLayer arbitration API: file, track, and respond as claimant or respondent."
 readme = "README.md"
 requires-python = ">=3.11"

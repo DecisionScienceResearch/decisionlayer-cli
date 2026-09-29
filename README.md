@@ -177,23 +177,37 @@ Starts in `ready_to_sign`. Claimant signs and pays at the printed `sign_url` (fi
 | Command | What it does |
 | --- | --- |
 | `dl login -p NAME` | Save an API key under a profile (checks it first) |
+| `dl whoami` | Account behind the active key (`GET /api/v1/me`) |
 | `dl config show` | Masked keys, base URL, config path |
-| `dl consent create \| list \| get ID` | Consent-to-arbitrate requests |
+| `dl consent create \| list \| get ID` | Consent-to-arbitrate requests. `get` calls `GET /consent-cases/{id}` |
+| `dl consent sign \| accept \| reject --yes \| complete-respondent` | Sign URL, respondent accept/reject, or the test-key one-shot |
 | `dl case create` | File a contract-clause case (claimant) |
-| `dl case list \| inbox` | Your cases; `inbox` is only those waiting on you |
-| `dl case get ID` | Status, whose turn it is, and what to do next |
+| `dl case list \| inbox` | Your cases; `inbox` is only those waiting on you. Pass `--cursor` for the next page |
+| `dl case get ID` | Status, whose turn it is, `next_round`, `accepted_fields`, and what to do next |
+| `dl case sign ID` | Signing URL for `sign_terms` |
+| `dl case claim ID --code` | Respondent joins with the emailed verification code |
+| `dl case decision ID` | Published award text and PDF URL |
 | `dl case open ID [--view]` | Open the next web step (or the case page) |
 | `dl case watch ID [--until S \| --until-action]` | Poll until status or `action_required` |
-| `dl response submit ID --argument …` | Submit your round (either party) |
+| `dl response submit ID --argument …` | Submit your round. Fields outside `accepted_fields` are refused locally |
 | `dl response list ID` | The response thread, oldest first |
-| `dl upload sessions FILES` | Two-step GCS tickets, then PUT the bytes |
+| `dl simulation create \| get \| watch \| result` | One-shot simulation. Production key only |
+| `dl events` | Change feed (`case.updated`, `case.decided`, `consent_case.updated`) |
+| `dl upload sessions FILES` | Two-step GCS tickets, then PUT the bytes. A supplied role is ignored |
 | `dl flow claimant \| respondent \| status` | Guided dual-party walk |
+
+Staging (test keys, simulations, and the routes above) is `https://staging.decisionlayer.ai`. Point the CLI at it with `--base-url` or `DECISIONLAYER_BASE_URL`. The default remains production. Test keys (`dvarb_test_...`, created at `/settings/test-api-keys`) are for contract and consent practice. Simulations reject them with 403. Use a production key from `/settings/api-keys` for `dl simulation`.
+
+Official samples from the API guides, with keys read from the environment, are in [`examples/official/`](examples/official/).
+
+`API_ERGONOMICS.md` is the 16 Sep production audit. [`API_ERGONOMICS_V2.md`](API_ERGONOMICS_V2.md) is the staging pass.
 
 Global options: `-p`/`--profile`, `--api-key`, `--base-url`, `--json`. `--via-tickets` uses `POST /api/v1/uploads` instead of multipart files; do not mix both on the same field.
 
 ## Docs
 
-- [API_ERGONOMICS.md](API_ERGONOMICS.md) — what was confusing, and API improvements
+- [API_ERGONOMICS.md](API_ERGONOMICS.md) — 16 Sep production audit
+- [API_ERGONOMICS_V2.md](API_ERGONOMICS_V2.md) — 28 Sep staging audit
 - [docs/CASE_FLOW.md](docs/CASE_FLOW.md) — status machines
 - Official: [consent](https://www.decisionlayer.ai/api/create-a-consent-case) · [contract-clause](https://www.decisionlayer.ai/api/create-a-case) · [OpenAPI](https://www.decisionlayer.ai/api/v1/openapi.json)
 

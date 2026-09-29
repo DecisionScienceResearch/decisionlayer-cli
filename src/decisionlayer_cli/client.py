@@ -3,17 +3,28 @@
 from __future__ import annotations
 
 import mimetypes
+import uuid
 from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Mapping, Sequence
 
 import httpx
 
+from . import __version__
 from .errors import APIError, ConfigError, raise_for_status
 
 
 DEFAULT_BASE_URL = "https://www.decisionlayer.ai"
 API_PREFIX = "/api/v1"
 MAX_DIRECT_FILE_BYTES = 100 * 1024 * 1024
+LARGE_FILE_BYTES = 8 * 1024 * 1024
+
+
+class CursorPage(list):
+    """JSON list plus the X-Next-Cursor header from a paged GET."""
+
+    def __init__(self, items: Sequence[Any], next_cursor: str | None = None) -> None:
+        super().__init__(items)
+        self.next_cursor = next_cursor
 
 
 class DecisionLayerClient:
@@ -33,12 +44,13 @@ class DecisionLayerClient:
                 "`dl login --profile claimant` or set DECISIONLAYER_API_KEY."
             )
         self.base_url = base_url.rstrip("/")
+        self._last_cursor: str | None = None
         self._client = httpx.Client(
             base_url=self.base_url,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Accept": "application/json",
-                "User-Agent": "decisionlayer-cli/1.0.0",
+                "User-Agent": f"decisionlayer-cli/{__version__}",
             },
             timeout=timeout,
             follow_redirects=True,
@@ -66,6 +78,7 @@ class DecisionLayerClient:
         json: Any = None,
         data: Mapping[str, Any] | None = None,
         files: Any = None,
+        headers: Mapping[str, str] | None = None,
         expected: Sequence[int] = (200, 201),
     ) -> Any:
         response = self._client.request(
@@ -75,11 +88,37 @@ class DecisionLayerClient:
             json=json,
             data=data,
             files=files,
+            headers=headers,
         )
+        self._last_cursor = response.headers.get("X-Next-Cursor") or None
         raise_for_status(response, expected=expected)
         if response.status_code == 204 or not response.content:
             return None
         return response.json()
+
+    def _idempotency_headers(self, key: str | None) -> dict[str, str]:
+        return {"Idempotency-Key": key or str(uuid.uuid4())}
+
+    def _page(self, data: Any) -> CursorPage:
+        items = data if isinstance(data, list) else []
+        return CursorPage(items, self._last_cursor)
+
+    def get_me(self) -> dict[str, Any]:
+        return self._request("GET", "/me")
+
+    def list_events(
+        self,
+        *,
+        since: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        elif since:
+            params["since"] = since
+        return self._request("GET", "/events", params=params)
 
     def create_upload_sessions(self, files: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         payload = {
@@ -88,7 +127,6 @@ class DecisionLayerClient:
                     "filename": item["filename"],
                     "size": item["size"],
                     **({"content_type": item["content_type"]} if item.get("content_type") else {}),
-                    **({"role": item["role"]} if item.get("role") else {}),
                 }
                 for item in files
             ]
@@ -110,7 +148,7 @@ class DecisionLayerClient:
                 "Content-Type": mime,
                 "Content-Length": str(len(data)),
             },
-            timeout=120.0,
+            timeout=300.0,
         )
         if response.status_code not in (200, 201, 204):
             raise APIError(
@@ -125,7 +163,7 @@ class DecisionLayerClient:
     def cancel_upload_sessions(self, tickets: Sequence[str]) -> dict[str, Any]:
         return self.cancel_uploads(tickets)
 
-    def upload_files(self, paths: Sequence[Path], *, role: str | None = None) -> list[str]:
+    def upload_files(self, paths: Sequence[Path]) -> list[str]:
         descriptors = []
         for path in paths:
             if not path.is_file():
@@ -135,29 +173,59 @@ class DecisionLayerClient:
                 raise ConfigError(f"{path} is empty; the upload API requires size > 0.")
             if size > MAX_DIRECT_FILE_BYTES:
                 raise ConfigError(f"{path.name} exceeds the 100 MiB per-file limit ({size} bytes).")
-            item: dict[str, Any] = {
-                "path": path,
-                "filename": path.name,
-                "size": size,
-                "content_type": mimetypes.guess_type(path.name)[0],
-            }
-            if role:
-                item["role"] = role
-            descriptors.append(item)
-        batch = self.create_upload_sessions(
-            [
-                {k: v for k, v in d.items() if k != "path"}
-                for d in descriptors
-            ]
-        )
+            descriptors.append(
+                {
+                    "path": path,
+                    "filename": path.name,
+                    "size": size,
+                    "content_type": mimetypes.guess_type(path.name)[0],
+                }
+            )
+        batch = self.create_upload_sessions([{k: v for k, v in d.items() if k != "path"} for d in descriptors])
         tickets: list[str] = []
         for session, descriptor in zip(batch["uploads"], descriptors):
             self.put_file(session["upload_url"], descriptor["path"], descriptor["content_type"])
             tickets.append(session["ticket"])
         return tickets
 
-    def list_consent_cases(self) -> list[dict[str, Any]]:
-        return self._request("GET", "/consent-cases")
+    def _route_files(self, paths: Sequence[Path], *, via_tickets: bool) -> tuple[list[Path], list[str]]:
+        """Return multipart paths, or tickets when asked or when any file is 8 MiB or larger.
+
+        One field cannot mix a raw file with a ticket, so a single large file
+        sends the whole group through POST /uploads.
+        """
+        files = [path for path in paths if path is not None]
+        if not files:
+            return [], []
+        for path in files:
+            if not path.is_file():
+                raise ConfigError(f"File not found: {path}")
+        if via_tickets or any(path.stat().st_size >= LARGE_FILE_BYTES for path in files):
+            return [], self.upload_files(files)
+        return files, []
+
+    def list_consent_cases(
+        self,
+        *,
+        action_required: bool | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        cursor: str | None = None,
+    ) -> CursorPage:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        else:
+            params["offset"] = offset
+        if action_required is not None:
+            params["action_required"] = "true" if action_required else "false"
+        if status:
+            params["status"] = status
+        return self._page(self._request("GET", "/consent-cases", params=params))
+
+    def get_consent_case(self, consent_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/consent-cases/{consent_id}")
 
     def create_consent_case(
         self,
@@ -166,27 +234,42 @@ class DecisionLayerClient:
         contract_files: Sequence[Path] = (),
         supporting_documents: Sequence[Path] = (),
         via_tickets: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         ticket_groups: dict[str, list[str]] = {}
-        if via_tickets:
-            if contract_files:
-                ticket_groups["contract_files_tickets"] = self.upload_files(contract_files)
-            if supporting_documents:
-                ticket_groups["supporting_documents_tickets"] = self.upload_files(
-                    supporting_documents
-                )
-        form, files = _build_multipart(
-            data,
-            file_groups={
-                "contract_files": [] if via_tickets else contract_files,
-                "supporting_documents": [] if via_tickets else supporting_documents,
-            },
-            ticket_groups=ticket_groups,
-        )
+        file_groups: dict[str, Sequence[Path]] = {}
+        contract_paths, contract_tickets = self._route_files(contract_files, via_tickets=via_tickets)
+        support_paths, support_tickets = self._route_files(supporting_documents, via_tickets=via_tickets)
+        if contract_tickets:
+            ticket_groups["contract_files_tickets"] = contract_tickets
+        else:
+            file_groups["contract_files"] = contract_paths
+        if support_tickets:
+            ticket_groups["supporting_documents_tickets"] = support_tickets
+        else:
+            file_groups["supporting_documents"] = support_paths
+        form, files = _build_multipart(data, file_groups=file_groups, ticket_groups=ticket_groups)
         try:
-            return self._request("POST", "/consent-cases", files=_as_multipart(form, files))
+            return self._request(
+                "POST",
+                "/consent-cases",
+                files=_as_multipart(form, files),
+                headers=self._idempotency_headers(idempotency_key),
+            )
         finally:
             _close_files(files)
+
+    def sign_consent_case(self, consent_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/consent-cases/{consent_id}/sign")
+
+    def accept_consent_case(self, consent_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/consent-cases/{consent_id}/accept")
+
+    def reject_consent_case(self, consent_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/consent-cases/{consent_id}/reject")
+
+    def complete_test_consent_respondent(self, consent_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/consent-cases/{consent_id}/respondent")
 
     def list_cases(
         self,
@@ -195,16 +278,30 @@ class DecisionLayerClient:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        cursor: str | None = None,
+    ) -> CursorPage:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        else:
+            params["offset"] = offset
         if action_required is not None:
             params["action_required"] = "true" if action_required else "false"
         if status:
             params["status"] = status
-        return self._request("GET", "/cases", params=params)
+        return self._page(self._request("GET", "/cases", params=params))
 
     def get_case(self, case_id: str) -> dict[str, Any]:
         return self._request("GET", f"/cases/{case_id}")
+
+    def claim_case(self, case_id: str, verification_code: str) -> dict[str, Any]:
+        return self._request("POST", f"/cases/{case_id}/claim", json={"verification_code": verification_code})
+
+    def sign_case(self, case_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/cases/{case_id}/sign")
+
+    def get_decision(self, case_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/cases/{case_id}/decision")
 
     def create_case(
         self,
@@ -213,27 +310,31 @@ class DecisionLayerClient:
         contract_file: Path | None = None,
         evidence: Sequence[Path] = (),
         via_tickets: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         ticket_groups: dict[str, list[str]] = {}
         extra_files: list[tuple[str, tuple[str, BinaryIO, str]]] = []
         handles: list[BinaryIO] = []
-        files: list[tuple[str, tuple[str, BinaryIO, str]]] = []
         file_groups: dict[str, Sequence[Path]] = {}
 
-        if via_tickets:
-            if contract_file:
-                ticket_groups["contract_file_ticket"] = self.upload_files([contract_file])[:1]
-            if evidence:
-                ticket_groups["evidence_tickets"] = self.upload_files(evidence)
-        else:
-            if contract_file:
-                if not contract_file.is_file():
-                    raise ConfigError(f"File not found: {contract_file}")
-                handle = contract_file.open("rb")
-                handles.append(handle)
-                extra_files.append(("contract_file", (contract_file.name, handle, _mime(contract_file))))
-            file_groups["evidence"] = evidence
+        contract_paths, contract_tickets = self._route_files(
+            [contract_file] if contract_file else [],
+            via_tickets=via_tickets,
+        )
+        if contract_tickets:
+            ticket_groups["contract_file_ticket"] = contract_tickets[:1]
+        elif contract_paths:
+            handle = contract_paths[0].open("rb")
+            handles.append(handle)
+            extra_files.append(("contract_file", (contract_paths[0].name, handle, _mime(contract_paths[0]))))
 
+        evidence_paths, evidence_tickets = self._route_files(evidence, via_tickets=via_tickets)
+        if evidence_tickets:
+            ticket_groups["evidence_tickets"] = evidence_tickets
+        else:
+            file_groups["evidence"] = evidence_paths
+
+        files: list[tuple[str, tuple[str, BinaryIO, str]]] = []
         try:
             form, files = _build_multipart(
                 data,
@@ -241,7 +342,12 @@ class DecisionLayerClient:
                 ticket_groups=ticket_groups,
                 extra_files=extra_files,
             )
-            return self._request("POST", "/cases", files=_as_multipart(form, files))
+            return self._request(
+                "POST",
+                "/cases",
+                files=_as_multipart(form, files),
+                headers=self._idempotency_headers(idempotency_key),
+            )
         finally:
             _close_files(files)
             for handle in handles:
@@ -260,37 +366,103 @@ class DecisionLayerClient:
         evidence_response_files: Sequence[Path] = (),
         counterclaim_files: Sequence[Path] = (),
         via_tickets: bool = False,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        groups = {
+            "evidence": evidence,
+            "evidence_response_files": evidence_response_files,
+            "counterclaim_files": counterclaim_files,
+        }
+        ticket_names = {
+            "evidence": "evidence_tickets",
+            "evidence_response_files": "evidence_response_files_tickets",
+            "counterclaim_files": "counterclaim_files_tickets",
+        }
         ticket_groups: dict[str, list[str]] = {}
         file_groups: dict[str, Sequence[Path]] = {}
-        if via_tickets:
-            if evidence:
-                ticket_groups["evidence_tickets"] = self.upload_files(evidence)
-            if evidence_response_files:
-                ticket_groups["evidence_response_files_tickets"] = self.upload_files(
-                    evidence_response_files
-                )
-            if counterclaim_files:
-                ticket_groups["counterclaim_files_tickets"] = self.upload_files(counterclaim_files)
-        else:
-            file_groups = {
-                "evidence": evidence,
-                "evidence_response_files": evidence_response_files,
-                "counterclaim_files": counterclaim_files,
-            }
-        form, files = _build_multipart(
-            data,
-            file_groups=file_groups,
-            ticket_groups=ticket_groups,
-        )
+        for field, paths in groups.items():
+            kept, tickets = self._route_files(paths, via_tickets=via_tickets)
+            if tickets:
+                ticket_groups[ticket_names[field]] = tickets
+            elif kept:
+                file_groups[field] = kept
+        form, files = _build_multipart(data, file_groups=file_groups, ticket_groups=ticket_groups)
         try:
             return self._request(
                 "POST",
                 f"/cases/{case_id}/responses",
                 files=_as_multipart(form, files),
+                headers=self._idempotency_headers(idempotency_key),
             )
         finally:
             _close_files(files)
+
+    def create_simulation(
+        self,
+        data: Mapping[str, Any],
+        *,
+        contract_file: Path | None = None,
+        plaintiff_documents: Sequence[Path] = (),
+        respondent_documents: Sequence[Path] = (),
+        plaintiff_rebuttal_documents: Sequence[Path] = (),
+        respondent_rebuttal_documents: Sequence[Path] = (),
+        via_tickets: bool = False,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        groups = {
+            "plaintiff_documents": plaintiff_documents,
+            "respondent_documents": respondent_documents,
+            "plaintiff_rebuttal_documents": plaintiff_rebuttal_documents,
+            "respondent_rebuttal_documents": respondent_rebuttal_documents,
+        }
+        ticket_groups: dict[str, list[str]] = {}
+        file_groups: dict[str, Sequence[Path]] = {}
+        extra_files: list[tuple[str, tuple[str, BinaryIO, str]]] = []
+        handles: list[BinaryIO] = []
+        contract_paths, contract_tickets = self._route_files(
+            [contract_file] if contract_file else [],
+            via_tickets=via_tickets,
+        )
+        if contract_tickets:
+            ticket_groups["contract_file_ticket"] = contract_tickets[:1]
+        elif contract_paths:
+            handle = contract_paths[0].open("rb")
+            handles.append(handle)
+            extra_files.append(("contract_file", (contract_paths[0].name, handle, _mime(contract_paths[0]))))
+        for field, paths in groups.items():
+            kept, tickets = self._route_files(paths, via_tickets=via_tickets)
+            if tickets:
+                ticket_groups[f"{field}_tickets"] = tickets
+            elif kept:
+                file_groups[field] = kept
+        files: list[tuple[str, tuple[str, BinaryIO, str]]] = []
+        try:
+            form, files = _build_multipart(
+                data,
+                file_groups=file_groups,
+                ticket_groups=ticket_groups,
+                extra_files=extra_files,
+            )
+            parts = _as_multipart(form, files)
+            if not files and not ticket_groups:
+                parts.append(("contract_file", ("", b"", "application/octet-stream")))
+            return self._request(
+                "POST",
+                "/simulations",
+                files=parts,
+                headers=self._idempotency_headers(idempotency_key),
+            )
+        finally:
+            _close_files(files)
+            for handle in handles:
+                if not handle.closed:
+                    handle.close()
+
+    def get_simulation(self, simulation_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/simulations/{simulation_id}")
+
+    def get_simulation_result(self, simulation_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/simulations/{simulation_id}/result")
 
 
 def _mime(path: Path) -> str:

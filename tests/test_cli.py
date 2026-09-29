@@ -12,6 +12,8 @@ def test_help():
     assert "case" in result.output
     assert "response" in result.output
     assert "login" in result.output
+    assert "simulation" in result.output
+    assert "whoami" in result.output
 
 
 def test_login_help():
@@ -47,7 +49,7 @@ def test_missing_key_exits_nonzero():
 
 
 def test_subcommand_help():
-    for name in ("case", "consent", "response", "flow", "config", "upload"):
+    for name in ("case", "consent", "response", "flow", "config", "upload", "simulation"):
         result = runner.invoke(app, [name, "--help"])
         assert result.exit_code == 0, result.output
 
@@ -72,3 +74,24 @@ def test_case_create_requires_contract():
     )
     assert result.exit_code != 0
     assert "contract" in result.output.lower()
+
+
+def test_consent_reject_requires_yes():
+    result = runner.invoke(app, ["--api-key", "dvarb_test", "consent", "reject", "consent_1"])
+    assert result.exit_code != 0
+    assert "terminal" in result.output.lower()
+
+
+def test_ensure_accepted_blocks_wrong_round_field():
+    from decisionlayer_cli.cli import _ensure_accepted
+    from decisionlayer_cli.errors import ConfigError
+
+    try:
+        _ensure_accepted(
+            {"next_round": 3, "accepted_fields": ["argument", "affirmation", "evidence"]},
+            ["argument", "affirmation", "counterclaim_argument"],
+        )
+    except ConfigError as exc:
+        assert "counterclaim_argument" in str(exc)
+    else:
+        raise AssertionError("expected ConfigError")

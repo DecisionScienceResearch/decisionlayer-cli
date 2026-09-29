@@ -31,6 +31,8 @@ def render_error(exc: BaseException) -> None:
         console.print(f"[bold red]HTTP {exc.status_code}[/] {exc.message}")
         for detail in exc.details:
             console.print(f"  • {detail}")
+        if exc.reason:
+            console.print(f"  reason: {exc.reason}")
         if exc.hint:
             console.print()
             console.print(Panel(exc.hint, title="What to do", border_style="yellow"))
@@ -50,6 +52,44 @@ def render_consent_created(payload: dict[str, Any]) -> None:
         if dashboard:
             lines.append(f"Dashboard:\n{dashboard}")
         console.print(Panel("\n\n".join(lines), title="Web steps (not in the API)", border_style="cyan"))
+
+
+def render_consent(case: dict[str, Any]) -> None:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    rows = [
+        ("ID", case.get("id")),
+        ("Status", case.get("status")),
+        ("Your role", case.get("role")),
+        ("Action required", case.get("action_required")),
+        ("Next action", case.get("next_action")),
+        ("Demand", case.get("financial_demand_usd")),
+        ("Question", case.get("question_for_arbitration")),
+        ("Respondent", _person(case.get("respondent_first_name"), case.get("respondent_last_name"), case.get("respondent_email"))),
+        ("Claimant email", case.get("claimant_email")),
+        ("Test filing", "yes" if case.get("test") else None),
+        ("Action URL", case.get("action_url")),
+        ("View URL", case.get("view_url")),
+        ("Updated", case.get("updated_at")),
+    ]
+    for label, value in rows:
+        if value is None or value == "":
+            continue
+        table.add_row(label, str(value))
+    console.print(table)
+    if case.get("action_required") and case.get("next_action"):
+        url = case.get("action_url") or case.get("view_url") or ""
+        note = f"This key must [bold]{case['next_action']}[/]"
+        if case.get("next_action") == "accept":
+            note += "\n`dl consent accept` or `dl consent reject --yes`"
+        elif case.get("next_action") == "sign_terms":
+            note += "\n`dl consent sign`"
+        if url:
+            note += f"\n{url}"
+        elif case.get("test"):
+            note += "\nA test key is already paid, so action_url can be empty. Use sign_url from create, or `dl consent sign`."
+        console.print(Panel(note, title="Waiting on you", border_style="yellow"))
 
 
 def render_consent_list(cases: list[dict[str, Any]]) -> None:
@@ -109,6 +149,9 @@ def render_case(case: dict[str, Any]) -> None:
         ("Question", case.get("question_for_arbitration")),
         ("Respondent", _person(case.get("respondent_first_name"), case.get("respondent_last_name"), case.get("respondent_email"))),
         ("Claimant email", case.get("claimant_email")),
+        ("Next round", case.get("next_round")),
+        ("Accepted fields", ", ".join(case.get("accepted_fields") or []) or None),
+        ("Test filing", "yes" if case.get("test") else None),
         ("Action URL", case.get("action_url")),
         ("View URL", case.get("view_url")),
         ("Updated", case.get("updated_at")),
@@ -126,14 +169,11 @@ def render_case(case: dict[str, Any]) -> None:
                 border_style="yellow",
             )
         )
-    if case.get("status") == "decided" and case.get("view_url"):
-        console.print(
-            Panel(
-                f"There is no decision JSON endpoint. Open:\n{case['view_url']}",
-                title="Decision ready",
-                border_style="green",
-            )
-        )
+    if case.get("status") == "decided":
+        lines = ["Read the award with `dl case decision " + str(case.get("id") or "") + "`."]
+        if case.get("view_url"):
+            lines.append(str(case["view_url"]))
+        console.print(Panel("\n".join(lines), title="Decision ready", border_style="green"))
 
 
 def render_case_list(cases: list[dict[str, Any]]) -> None:
@@ -205,6 +245,96 @@ def render_response_created(payload: dict[str, Any]) -> None:
         render_case(payload["case"])
 
 
+def render_me(principal: dict[str, Any]) -> None:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    for label, key in (
+        ("Email", "email"),
+        ("Name", None),
+        ("Can file cases", "can_file_cases"),
+        ("Account ID", "id"),
+        ("Created", "created_at"),
+    ):
+        if key is None:
+            value = _person(principal.get("first_name"), principal.get("last_name"), None)
+        else:
+            value = principal.get(key)
+        if value is None or value == "":
+            continue
+        table.add_row(label, str(value))
+    console.print(table)
+    console.print("Role is per case, not per key. Use `dl case get` to see it.")
+
+
+def render_events(payload: dict[str, Any]) -> None:
+    events = payload.get("events") or []
+    if not events:
+        console.print("No events on this page.")
+    else:
+        table = Table(title=f"Events ({len(events)}, oldest first)")
+        table.add_column("When")
+        table.add_column("Type")
+        table.add_column("Resource")
+        table.add_column("ID")
+        for event in events:
+            table.add_row(
+                str(event.get("occurred_at") or ""),
+                str(event.get("type") or ""),
+                str(event.get("resource") or ""),
+                str(event.get("resource_id") or ""),
+            )
+        console.print(table)
+    cursor = payload.get("next_cursor")
+    if cursor:
+        console.print(f"Next cursor: {cursor}")
+
+
+def render_signing(session: dict[str, Any]) -> None:
+    console.print(
+        Panel(
+            f"{session.get('signing_url')}\n\nProvider: {session.get('provider')}\nOpen it before {session.get('expires_at')}. Call sign again after it expires.",
+            title="Signing URL",
+            border_style="cyan",
+        )
+    )
+
+
+def render_decision(award: dict[str, Any]) -> None:
+    lines = [str(award.get("text") or "")]
+    if award.get("pdf_url"):
+        lines.append(f"\nPDF: {award['pdf_url']}")
+    if award.get("page_url"):
+        lines.append(f"Page: {award['page_url']}")
+    console.print(Panel("\n".join(lines), title=f"Award {award.get('case_id') or award.get('id') or ''}", border_style="green"))
+
+
+def render_simulation(simulation: dict[str, Any]) -> None:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    for label, key in (
+        ("ID", "id"),
+        ("Status", "status"),
+        ("Page", "page_url"),
+        ("Result URL", "result_url"),
+        ("Message", "message"),
+        ("Created", "created_at"),
+    ):
+        value = simulation.get(key)
+        if value is None or value == "":
+            continue
+        table.add_row(label, str(value))
+    console.print(table)
+    if simulation.get("status") == "ready":
+        console.print("Award is ready. Run `dl simulation result " + str(simulation.get("id") or "") + "`.")
+
+
+def render_page_cursor(cursor: str | None) -> None:
+    if cursor:
+        console.print(f"Next cursor: {cursor}")
+
+
 def render_uploads(payload: dict[str, Any]) -> None:
     table = Table(title=f"Upload sessions (batch {payload.get('batch_id') or ''})")
     table.add_column("File")
@@ -221,7 +351,7 @@ def render_uploads(payload: dict[str, Any]) -> None:
             str(item.get("role") or ""),
         )
     console.print(table)
-    console.print("PUT of each file to upload_url is already done. Submit these tickets on create/respond.")
+    console.print("PUT of each file to upload_url is already done. The server ignores a role on the ticket. Pass the tickets on create or submit, or use --via-tickets.")
 
 
 def _person(first: Any, last: Any, email: Any) -> str:
