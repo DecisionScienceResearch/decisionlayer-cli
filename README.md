@@ -184,7 +184,7 @@ A test key (`dvarb_test_...` from `/settings/test-api-keys`) records signature a
 | `dl whoami` | Account behind the active key (`GET /api/v1/me`) |
 | `dl config show` | Masked keys, base URL, config path |
 | `dl consent create \| list \| get ID` | Consent-to-arbitrate requests. `get` calls `GET /consent-cases/{id}` |
-| `dl consent sign \| accept \| reject --yes \| complete-respondent` | Sign URL, respondent accept/reject, or the test-key one-shot |
+| `dl consent sign \| accept \| reject --yes \| claim \| complete-respondent` | Sign URL, respondent accept/reject, invitation-token claim, or the test-key one-shot |
 | `dl case create` | File a contract-clause case (claimant) |
 | `dl case list \| inbox` | Your cases; `inbox` is only those waiting on you. Pass `--cursor` for the next page |
 | `dl case get ID` | Status, whose turn it is, `next_round`, `accepted_fields`, and what to do next |
@@ -195,8 +195,9 @@ A test key (`dvarb_test_...` from `/settings/test-api-keys`) records signature a
 | `dl case watch ID [--until S \| --until-action]` | Poll until status or `action_required` |
 | `dl response submit ID --argument …` | Submit your round. Fields outside `accepted_fields` are refused locally |
 | `dl response list ID` | The response thread, oldest first |
-| `dl simulation create \| get \| watch \| result` | One-shot simulation. Production key only |
-| `dl events` | Change feed (`case.updated`, `case.decided`, `consent_case.updated`) |
+| `dl simulation create \| list \| get \| watch \| result` | One-shot simulation. Production key only. `list` recovers an id |
+| `dl events` | Latest change per case or consent request, not a full history |
+| `dl feedback "..."` | Send a note to the DecisionLayer team |
 | `dl upload sessions FILES` | Two-step GCS tickets, then PUT the bytes. A supplied role is ignored |
 | `dl flow claimant \| respondent \| status` | Guided dual-party walk |
 

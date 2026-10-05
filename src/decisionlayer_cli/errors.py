@@ -119,6 +119,10 @@ def _hint(status: int, reason: str = "") -> str:
         return "This API key is not a party on the case. Switch to the claimant or respondent profile that is."
     if status == 404 and reason == "not_found":
         return "Nothing with that id exists for this key."
+    if reason == "not_published":
+        return "No award is public yet. A test filing stops at submitted and does not generate one on its own."
+    if reason == "invalid_code":
+        return "The verification code or consent invitation token was rejected."
     return {
         401: "Create or paste a key from /settings/api-keys (prefix dvarb_). Test keys use /settings/test-api-keys (prefix dvarb_test_).",
         403: "The key is not allowed to do this. Filing can require an approved account, simulations reject test keys, and the consent respondent shortcut rejects live keys.",

@@ -271,6 +271,23 @@ class DecisionLayerClient:
     def complete_test_consent_respondent(self, consent_id: str) -> dict[str, Any]:
         return self._request("POST", f"/consent-cases/{consent_id}/respondent")
 
+    def claim_consent_case(self, invitation_token: str) -> dict[str, Any]:
+        return self._request("POST", "/consent-cases/claim", json={"invitation_token": invitation_token})
+
+    def send_feedback(
+        self,
+        message: str,
+        *,
+        category: str = "other",
+        case_id: str | None = None,
+        client: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"message": message, "category": category}
+        if case_id:
+            payload["case_id"] = case_id
+        payload["client"] = client or f"Archwares-decisionlayer-cli/{__version__}"
+        return self._request("POST", "/feedback", json=payload, expected=(200, 201))
+
     def list_cases(
         self,
         *,
@@ -457,6 +474,12 @@ class DecisionLayerClient:
             for handle in handles:
                 if not handle.closed:
                     handle.close()
+
+    def list_simulations(self, *, limit: int = 50, cursor: str | None = None) -> CursorPage:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return self._page(self._request("GET", "/simulations", params=params))
 
     def get_simulation(self, simulation_id: str) -> dict[str, Any]:
         return self._request("GET", f"/simulations/{simulation_id}")

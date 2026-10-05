@@ -230,3 +230,29 @@ def test_create_case_idempotency_keys_differ():
         )
     assert keys[0] and keys[0] != "same-key"
     assert keys[1] == keys[2] == "same-key"
+
+
+def test_list_simulations_and_consent_claim_and_feedback():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.content))
+        if request.method == "GET" and request.url.path == "/api/v1/simulations":
+            return httpx.Response(200, json=[{"id": "case_sim", "status": "ready"}], headers={"X-Next-Cursor": "next"})
+        if request.url.path == "/api/v1/consent-cases/claim":
+            return httpx.Response(200, json={"id": "creq_1", "status": "paid"})
+        if request.url.path == "/api/v1/feedback":
+            return httpx.Response(201, json={"id": "fb_1", "received_at": "2026-10-05T00:00:00Z", "message": "ok"})
+        return httpx.Response(404, json={"error": {"status": 404, "message": request.url.path, "details": []}})
+
+    transport = httpx.MockTransport(handler)
+    with DecisionLayerClient("dvarb_test", transport=transport) as client:
+        page = client.list_simulations()
+        claimed = client.claim_consent_case("invite-token")
+        note = client.send_feedback("A field was confusing", category="bug", case_id="creq_1")
+    assert page[0]["id"] == "case_sim"
+    assert page.next_cursor == "next"
+    assert claimed["id"] == "creq_1"
+    assert b"invitation_token" in seen[1][2]
+    assert note["id"] == "fb_1"
+    assert b"Archwares-decisionlayer-cli" in seen[2][2]

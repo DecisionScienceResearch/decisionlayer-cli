@@ -33,7 +33,13 @@ Public statuses: `draft`, `awaiting_signature`, `awaiting_payment`, `awaiting_id
 
 `next_round` is 1, 2, or 3 while a response is open. `accepted_fields` is the allow-list for that round. Case 404s set `error.reason` to `not_found`, `not_a_party`, or `not_claimed`.
 
-`GET /events` is the change feed. `case.decided` means the decision endpoint will return the award.
+`GET /events` keeps the latest change per case or consent request, not a history. `case.decided` means the decision endpoint will return the award. A decision 404 for an unpublished award sets `error.reason` to `not_published`. A rejected claim code is 403 with `invalid_code`.
+
+A test key skips signing, payment, identity verification, claim codes, email, and the `in_review` pause between rounds. `test` is true on those objects.
+
+`GET /simulations` lists simulation ids. They use the `case_` prefix and are not in `GET /cases`.
+
+`POST /consent-cases/claim` binds a live consent request with the invitation token from the respondent email. A matching email alone does not make a key the respondent. `POST /feedback` sends a note to the DecisionLayer team.
 
 Send `Idempotency-Key` on create and on submit. Page lists with `cursor` (`X-Next-Cursor`). Do not combine `cursor` with a non-zero `offset`.
 
@@ -46,11 +52,14 @@ POST /consent-cases  →  ready_to_sign
   POST /consent-cases/{id}/sign
   web: pay, unless the key is a test key (already paid, action_url null)
   → respondent
+       POST /consent-cases/claim  {invitation_token}   live keys; email match is not enough
        POST .../accept or POST .../reject
        POST .../sign
        or, test key only: POST .../respondent   (claim + accept + sign, no email)
   → respondent_rejected | fully_executed
 ```
+
+`fully_executed` is final. The id prefix is `creq_`. A consent request does not become a `/cases` object.
 
 Statuses: `draft`, `awaiting_account`, `ready_to_sign`, `awaiting_signature`, `awaiting_payment`, `paid`, `respondent_notified`, `respondent_viewing`, `respondent_accepted`, `respondent_rejected`, `fully_executed`.
 
@@ -69,4 +78,4 @@ POST /simulations   one multipart body with both sides
   → failed    message on the status object
 ```
 
-There is no list endpoint. The id is prefixed `case_` and does not appear in `GET /cases`. Poll about every 10 seconds. `page_url` needs a signed-in browser. `pdf_url` is temporary. `text` remains.
+`GET /simulations` lists ids for the production key, newest first. The id is prefixed `case_` and does not appear in `GET /cases`. Poll about every 10 seconds. `page_url` needs a signed-in browser. `pdf_url` is temporary. `text` remains.

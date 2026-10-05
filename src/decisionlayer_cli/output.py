@@ -330,6 +330,24 @@ def render_simulation(simulation: dict[str, Any]) -> None:
         console.print("Award is ready. Run `dl simulation result " + str(simulation.get("id") or "") + "`.")
 
 
+def render_simulation_list(items: list[dict[str, Any]]) -> None:
+    if not items:
+        console.print("No simulations for this API key.")
+        return
+    table = Table(title=f"Simulations ({len(items)})")
+    table.add_column("ID", no_wrap=True)
+    table.add_column("Status")
+    table.add_column("Created")
+    for item in items:
+        table.add_row(str(item.get("id") or ""), str(item.get("status") or ""), str(item.get("created_at") or ""))
+    console.print(table)
+    console.print("These ids use the case_ prefix and are not returned by `dl case list`.")
+
+
+def render_feedback(payload: dict[str, Any]) -> None:
+    console.print(f"Feedback {payload.get('id')} recorded at {payload.get('received_at')}.")
+
+
 def render_page_cursor(cursor: str | None) -> None:
     if cursor:
         console.print(f"Next cursor: {cursor}")

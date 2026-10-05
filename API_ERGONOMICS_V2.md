@@ -2,6 +2,29 @@
 
 Prepared by Archwares™.
 
+## Retest, 5 Oct 2026
+
+Bill asked for another pass after incorporating the earlier notes. This is what staging does now. The 29 Sep notes below are the previous pass.
+
+Fixed, and checked live:
+
+- A new test contract case, `case_01m45fz4b0fn6rtqtpcq6nz1ck`, ran all three rounds and landed on `submitted`. It did not stop in `in_review` after round 1. Round 2 opened for the claimant and round 3 for the respondent. `due_at` was null after the last round.
+- `GET /cases/{id}/decision` on a test case at `submitted` returns 404 with `reason: not_published`. The details say a test case finishes at `submitted` and does not generate an award on its own.
+- `GET /simulations` lists the production key's simulations. `case_01m3p3sf15e39rg0jxtbcskhms` is there, status `ready`. The id still uses the `case_` prefix and is still absent from `GET /cases`.
+- `contract_file_paths` is now a JSON array. `supporting_document_paths` is an array and was `[]` when none were sent.
+- A missing consent id returns `reason: not_found`.
+- The OpenAPI description now says the event feed keeps the latest event per resource, that a consent request does not become a `/cases` object, and that a test key skips signing, payment, identity, claim codes, email, and the `in_review` pause between rounds.
+- `POST /consent-cases/claim` exists for a live invitation token. A fake token returned 404 `not_found`. A bad case verification code returned 403 `invalid_code`.
+- `POST /feedback` returned `fb_84a44baa061a4628b91e3b12276bae4d`.
+
+Still open:
+
+- The staging guide pages still contain `https://www.decisionlayer.ai` in the copy-paste samples.
+- Simulation ids still share the `case_` prefix. Listing them is the recovery path.
+- A test filing still does not publish an award. That is now stated on the 404.
+
+The CLI in this repo adds `dl simulation list`, `dl consent claim --token`, and `dl feedback` for those routes.
+
 This is the second pass. [API_ERGONOMICS.md](API_ERGONOMICS.md) is the 16 Sep production audit and stays as it was. The notes below start from the staging OpenAPI and the three guide pages on 28 Sep 2026. On 29 Sep 2026 the CLI and the three official samples were run against `https://staging.decisionlayer.ai`. Contract and consent calls used test keys. The simulation used a production key. No card was charged.
 
 ## Live test-key filings, 29 Sep 2026

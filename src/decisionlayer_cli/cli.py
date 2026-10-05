@@ -29,7 +29,9 @@ from decisionlayer_cli.output import (
     render_page_cursor,
     render_response_created,
     render_signing,
+    render_feedback,
     render_simulation,
+    render_simulation_list,
     render_thread,
     render_uploads,
 )
@@ -222,6 +224,25 @@ def whoami(ctx: typer.Context) -> None:
     _run(ctx, work)
 
 
+@app.command("feedback")
+def feedback(
+    ctx: typer.Context,
+    message: str = typer.Argument(..., help="What failed, what was confusing, or what would help."),
+    category: str = typer.Option("other", "--category", help="bug, idea, praise, or other."),
+    case_id: Optional[str] = typer.Option(None, "--case-id", help="A case_ or creq_ id this note is about."),
+) -> None:
+    """Send a note to the DecisionLayer team (POST /api/v1/feedback)."""
+
+    def work(runtime: Runtime) -> None:
+        if category not in {"bug", "idea", "praise", "other"}:
+            raise ConfigError("--category must be bug, idea, praise, or other.")
+        with runtime.client() as client:
+            payload = client.send_feedback(message, category=category, case_id=case_id)
+        emit(runtime.json_mode, payload, render_feedback)
+
+    _run(ctx, work)
+
+
 @app.command("events")
 def events(
     ctx: typer.Context,
@@ -399,6 +420,21 @@ def consent_reject(
             raise ConfigError("Reject is terminal. Re-run with --yes to email the claimant and close the request.")
         with runtime.client() as client:
             case = client.reject_consent_case(consent_id)
+        emit(runtime.json_mode, case, render_consent)
+
+    _run(ctx, work)
+
+
+@consent_app.command("claim")
+def consent_claim(
+    ctx: typer.Context,
+    token: str = typer.Option(..., "--token", help="Last path segment of the /consent/respondent/{token} invitation link."),
+) -> None:
+    """Bind a live consent request to this account with the emailed invitation token."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            case = client.claim_consent_case(token.strip())
         emit(runtime.json_mode, case, render_consent)
 
     _run(ctx, work)
@@ -1055,6 +1091,22 @@ def simulation_create(
         if not runtime.json_mode:
             typer.echo("Production key required. Save this id. There is no list-simulations endpoint.")
         emit(runtime.json_mode, payload, render_simulation)
+
+    _run(ctx, work)
+
+
+@simulation_app.command("list")
+def simulation_list(
+    ctx: typer.Context,
+    limit: int = typer.Option(50, "--limit", min=1, max=200),
+    cursor: Optional[str] = typer.Option(None, "--cursor"),
+) -> None:
+    """List simulations owned by this production key. Test keys receive 403."""
+
+    def work(runtime: Runtime) -> None:
+        with runtime.client() as client:
+            page = client.list_simulations(limit=limit, cursor=cursor)
+        _emit_page(runtime, page, "simulations", render_simulation_list)
 
     _run(ctx, work)
 
