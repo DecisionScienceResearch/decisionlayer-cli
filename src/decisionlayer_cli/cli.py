@@ -323,10 +323,7 @@ def consent_create(
         }
         fields.update(_load_json_object(from_json))
         fields = _pick(fields, CONSENT_FIELDS)
-        _require_fields(
-            fields,
-            ["question_for_arbitration", "respondent_first_name", "respondent_last_name", "respondent_email"],
-        )
+        _require_fields(fields, _consent_required(fields))
         with runtime.client() as client:
             payload = client.create_consent_case(
                 fields,
@@ -874,18 +871,21 @@ def flow_claimant(
             )
         with runtime.client() as client:
             if kind == "consent":
+                consent_fields = _pick(
+                    {
+                        "question_for_arbitration": fields.get("question_for_arbitration"),
+                        "financial_demand_usd": fields.get("financial_demand_usd", "0.00"),
+                        "other_relief": fields.get("other_relief", ""),
+                        "respondent_type": fields.get("respondent_type") or "individual",
+                        "respondent_first_name": fields.get("respondent_first_name"),
+                        "respondent_last_name": fields.get("respondent_last_name", ""),
+                        "respondent_email": fields.get("respondent_email"),
+                    },
+                    CONSENT_FIELDS,
+                )
+                _require_fields(consent_fields, _consent_required(consent_fields))
                 payload = client.create_consent_case(
-                    _pick(
-                        {
-                            "question_for_arbitration": fields.get("question_for_arbitration"),
-                            "financial_demand_usd": fields.get("financial_demand_usd", "0.00"),
-                            "other_relief": fields.get("other_relief", ""),
-                            "respondent_first_name": fields.get("respondent_first_name"),
-                            "respondent_last_name": fields.get("respondent_last_name", ""),
-                            "respondent_email": fields.get("respondent_email"),
-                        },
-                        CONSENT_FIELDS,
-                    ),
+                    consent_fields,
                     contract_files=[contract] if contract.is_file() else [],
                 )
                 emit(runtime.json_mode, payload, render_consent_created)
@@ -1174,6 +1174,13 @@ def _require_fields(fields: dict[str, Any], names: list[str]) -> None:
     missing = [name for name in names if not fields.get(name)]
     if missing:
         raise ConfigError("Missing required fields: " + ", ".join(missing))
+
+
+def _consent_required(fields: dict[str, Any]) -> list[str]:
+    required = ["question_for_arbitration", "respondent_first_name", "respondent_email"]
+    if str(fields.get("respondent_type") or "individual").lower() != "organization":
+        required.append("respondent_last_name")
+    return required
 
 
 def _pick(fields: dict[str, Any], allowed: set[str]) -> dict[str, Any]:

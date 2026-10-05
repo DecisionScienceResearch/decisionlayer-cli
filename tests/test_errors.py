@@ -63,7 +63,12 @@ def test_reason_not_claimed():
         raise AssertionError("expected APIError")
 
 
-def test_unpublished_decision_404_keeps_server_details():
+def test_not_published_hint_is_not_specific_to_test_cases():
+    from decisionlayer_cli.errors import _hint
+
+    hint = _hint(404, "not_published")
+    assert hint == "No award is public yet."
+    assert "submitted" not in hint
     response = httpx.Response(
         404,
         json={

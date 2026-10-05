@@ -98,6 +98,38 @@ def test_consent_reject_requires_yes():
     assert "terminal" in result.output.lower()
 
 
+def test_consent_last_name_depends_on_respondent_type():
+    individual = runner.invoke(
+        app,
+        [
+            "--api-key",
+            "dvarb_test",
+            "consent",
+            "create",
+            "--question",
+            "Q",
+            "--respondent-first-name",
+            "Acme",
+            "--respondent-email",
+            "a@b.co",
+        ],
+    )
+    assert individual.exit_code != 0
+    assert "respondent_last_name" in individual.output
+
+    from decisionlayer_cli.cli import _consent_required
+
+    organization = _consent_required(
+        {
+            "question_for_arbitration": "Q",
+            "respondent_first_name": "Acme",
+            "respondent_email": "a@b.co",
+            "respondent_type": "organization",
+        }
+    )
+    assert "respondent_last_name" not in organization
+
+
 def test_ensure_accepted_blocks_wrong_round_field():
     from decisionlayer_cli.cli import _ensure_accepted
     from decisionlayer_cli.errors import ConfigError
