@@ -1,4 +1,6 @@
-# DecisionLayer API: what was confusing, and what would help
+# API notes, 16 September 2026
+
+These are notes from building the CLI, not the user guide. To file, respond, practice, or preview an award, use the [README](../README.md).
 
 Prepared by Archwares™.
 

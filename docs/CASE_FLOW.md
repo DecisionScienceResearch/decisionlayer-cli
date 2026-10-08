@@ -1,6 +1,6 @@
 # Case flows
 
-Archwares™ notes for the DecisionLayer CLI. See also [API_ERGONOMICS.md](../API_ERGONOMICS.md) and [API_ERGONOMICS_V2.md](../API_ERGONOMICS_V2.md).
+Statuses, turns, and the call that comes next. The walkthrough is in the [README](../README.md).
 
 Staging origin: `https://staging.decisionlayer.ai`. Production origin: `https://www.decisionlayer.ai`.
 
@@ -35,7 +35,7 @@ Public statuses: `draft`, `awaiting_signature`, `awaiting_payment`, `awaiting_id
 
 `GET /events` keeps the latest change per case or consent request, not a history. `case.decided` means the decision endpoint will return the award. A decision 404 for an unpublished award sets `error.reason` to `not_published`. A rejected claim code is 403 with `invalid_code`.
 
-A test key skips signing, payment, identity verification, claim codes, email, and the `in_review` pause between rounds. `test` is true on those objects.
+A test key skips signing, payment, identity verification, claim codes, email, and the `in_review` pause between rounds. `test` is true on those objects. A test filing runs the three response rounds and finishes at `submitted`. The award text comes from a live case once status is `decided`, or from a simulation once status is `ready`.
 
 `GET /simulations` lists simulation ids. They use the `case_` prefix and are not in `GET /cases`.
 

@@ -1,4 +1,6 @@
-# DecisionLayer API: staging review (28 Sep 2026)
+# Staging notes, 28 September and 5 October 2026
+
+These are notes from building the CLI, not the user guide. To file, respond, practice, or preview an award, use the [README](../README.md). The 5 October retest below is the later record. Sections after it describe an earlier day, and staging has changed since some of those lines were written.
 
 Prepared by Archwares™.
 
@@ -17,7 +19,7 @@ Fixed, and checked live:
 - `POST /consent-cases/claim` exists for a live invitation token. A fake token returned 404 `not_found`. A bad case verification code returned 403 `invalid_code`.
 - `POST /feedback` returned `fb_84a44baa061a4628b91e3b12276bae4d`.
 
-Still open:
+Notes carried from the 5 Oct retest:
 
 - The staging guide pages still contain `https://www.decisionlayer.ai` in the copy-paste samples.
 - Simulation ids still share the `case_` prefix. Listing them is the recovery path.
@@ -57,7 +59,7 @@ The respondent test key could `GET` it before any claim. `role` was `respondent`
 
 The scripts in `examples/official/` were run with `DECISIONLAYER_BASE_URL` set to staging. Contract and consent used the claimant test key, because those scripts call `DECISIONLAYER_API_KEY` and a production key would have filed a real case. The simulation script used the production key. All three exited 0.
 
-`create_consent_case.py` created `creq_01m3p3qbn6e2xrcmcvfjf3bjmj` with status `paid` and printed the sign URL. The list call reported 2 consent cases on the first page, which matched the two test filings from this account. The script still addresses `jordan.chen@example.com`, the address baked into the guide, not the respondent test account.
+`create_consent_case.py` created `creq_01m3p3qbn6e2xrcmcvfjf3bjmj` with status `paid` and printed the sign URL. The list call reported 2 consent cases on the first page, which matched the two test filings from this account. On that day the script still sent `jordan.chen@example.com`, the address baked into the guide. The copy in this repo now requires `RESPONDENT_EMAIL` and refuses an `@example.com` address.
 
 `create_real_case.py` created `case_01m3p3qjxtf5d8ds10w0q3r0sj` with status `awaiting_response` and `current_turn` `respondent`. It printed `Next step: None` and the view URL, then the hardcoded line "Payment and identity verification follow there after you sign." That line is not true for this test filing. Five polls stayed on `awaiting_response` / respondent. The claimant had 0 cases waiting. The script does not submit the respondent's round, because it is holding the claimant key.
 
@@ -129,7 +131,7 @@ On a test key, the 29 Sep contract filing recorded signature, payment, and ident
 
 So a bad query never reaches the 422 validator until the key is accepted. The old FastAPI `detail: [{loc, msg}]` shape was not reproduced on these two calls. Keep accepting both shapes until an authenticated 422 proves the old one is gone.
 
-## What is still confusing
+## Observations on 28 Sep 2026
 
 **Staging docs call production.** Every sample on the staging guides sets `BASE_URL = "https://www.decisionlayer.ai"`. Swagger examples for `action_url` and `view_url` use `https://www.decisionlayer.ai/cases/...`. Running a sample unchanged files against production. The copies in `examples/official/` read `DECISIONLAYER_BASE_URL` and default to staging.
 
@@ -155,7 +157,7 @@ So a bad query never reaches the 422 validator until the key is accepted. The ol
 
 **The playground is labeled, and the snippet next to it is not.** The Run button is described as a stateless demo that writes nothing. The Python beside it posts to production and sends a fresh `Idempotency-Key`, so it looks like the demo. Only consent and contract have a Run button. Simulation does not. Test keys are explained only on the simulation guide.
 
-## What to change next
+## Follow-ups recorded on 28 Sep 2026
 
 In the order a client actually hits them:
 
