@@ -20,7 +20,7 @@ import uuid
 
 import requests
 
-API_KEY = os.environ.get("DECISIONLAYER_API_KEY", "PASTE_YOUR_KEY_HERE")
+API_KEY = os.environ.get("DECISIONLAYER_API_KEY", "").strip()
 BASE_URL = os.environ.get("DECISIONLAYER_BASE_URL", "https://staging.decisionlayer.ai").rstrip("/")
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 CASE_ID = os.environ.get("CASE_ID", "")
@@ -93,7 +93,15 @@ def post_form(url: str, fields: dict, attachments: list) -> requests.Response:
             handle.close()
 
 
+def respondent_email() -> str:
+    email = os.environ.get("RESPONDENT_EMAIL", "").strip()
+    if not email or email.endswith("@example.com") or email.startswith("REPLACE"):
+        raise SystemExit("Set RESPONDENT_EMAIL to an inbox the respondent account can open.")
+    return email
+
+
 def create_case() -> dict:
+    email = respondent_email()
     write_sample_file("sample_contract.txt", "Sample contract for the DecisionLayer demo.\n")
     write_sample_file("sample_evidence.txt", "Sample evidence: deposit receipt.\n")
     data = {
@@ -105,7 +113,7 @@ def create_case() -> dict:
         "financial_demand_usd": "3500.00",
         "respondent_first_name": "Jordan",
         "respondent_last_name": "Chen",
-        "respondent_email": "jordan.chen@example.com",
+        "respondent_email": email,
         "respondent_street_address": "12 Main St",
         "respondent_city": "Austin",
         "respondent_state": "TX",
@@ -128,9 +136,13 @@ def create_case() -> dict:
     result = response.json()
     case = result["case"]
     print(f"Created case: {case['id']} (status: {case['status']})")
-    print(f"Next step: {case['next_action']}")
-    print(f"Finish it here: {result['action_url']}")
-    print("Payment and identity verification follow there after you sign.")
+    print(f"Next step: {case.get('next_action')}")
+    if result.get("action_url"):
+        print(f"Finish it here: {result['action_url']}")
+    if case.get("next_action") in {"sign_terms", "pay_filing_fee", "verify_identity"}:
+        print("Finish that step in the browser. Run the script again only after it is done.")
+    elif case.get("status") == "awaiting_response":
+        print("This filing is ready for a response.")
     return case
 
 
@@ -280,6 +292,10 @@ def show_decision(case: dict) -> None:
 
 
 def main() -> None:
+    if not API_KEY:
+        raise SystemExit("Set DECISIONLAYER_API_KEY.")
+    if not CASE_ID.strip():
+        respondent_email()
     me = who_am_i()
     print(f"Using API key for {me['email']}")
     case_id = CASE_ID.strip()

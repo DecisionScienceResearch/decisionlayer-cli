@@ -16,12 +16,22 @@ import uuid
 
 import requests
 
-API_KEY = os.environ.get("DECISIONLAYER_API_KEY", "PASTE_YOUR_KEY_HERE")
+API_KEY = os.environ.get("DECISIONLAYER_API_KEY", "").strip()
 BASE_URL = os.environ.get("DECISIONLAYER_BASE_URL", "https://staging.decisionlayer.ai").rstrip("/")
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
+def respondent_email() -> str:
+    email = os.environ.get("RESPONDENT_EMAIL", "").strip()
+    if not email or email.endswith("@example.com") or email.startswith("REPLACE"):
+        raise SystemExit("Set RESPONDENT_EMAIL to an inbox the respondent account can open.")
+    return email
+
+
 def main() -> None:
+    if not API_KEY:
+        raise SystemExit("Set DECISIONLAYER_API_KEY.")
+    email = respondent_email()
     with open("sample_contract.txt", "w", encoding="utf-8") as handle:
         handle.write("Sample contract for the DecisionLayer consent demo.\n")
 
@@ -31,7 +41,7 @@ def main() -> None:
         "other_relief": "Return of any project files.",
         "respondent_first_name": "Jordan",
         "respondent_last_name": "Chen",
-        "respondent_email": "jordan.chen@example.com",
+        "respondent_email": email,
     }
 
     with open("sample_contract.txt", "rb") as contract:

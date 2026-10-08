@@ -265,7 +265,7 @@ def config_set_base_url(
     ctx: typer.Context,
     url: str = typer.Argument(..., help="Origin, e.g. https://www.decisionlayer.ai"),
 ) -> None:
-    """Save the API origin (production or http://localhost:8000)."""
+    """Save the API origin. Production is https://www.decisionlayer.ai. Staging is https://staging.decisionlayer.ai."""
 
     def work(runtime: Runtime) -> None:
         path = save_base_url(url)
@@ -827,7 +827,7 @@ def upload_sessions(
             for session, path in zip(payload["uploads"], files):
                 client.put_file(session["upload_url"], path, session.get("content_type"))
         if not runtime.json_mode:
-            typer.echo("PUT finished for every file. Pass the tickets on create/submit, or use --via-tickets.")
+            typer.echo("Uploaded. The ticket is in the output above. Cancel an unused ticket with `dl upload cancel`.")
         emit(runtime.json_mode, payload, render_uploads)
 
     _run(ctx, work)
@@ -859,7 +859,7 @@ def flow_claimant(
     contract: Path = typer.Option(Path("examples/sample_contract.txt"), "--contract"),
     evidence: Path = typer.Option(Path("examples/sample_evidence.txt"), "--evidence"),
 ) -> None:
-    """Create the sample claimant filing, then print the web steps the API cannot do."""
+    """Create the sample claimant filing, then print the website steps that follow."""
 
     def work(runtime: Runtime) -> None:
         fields = _load_json_object(from_json)
@@ -1089,7 +1089,7 @@ def simulation_create(
                 idempotency_key=idempotency_key,
             )
         if not runtime.json_mode:
-            typer.echo("Production key required. Save this id. There is no list-simulations endpoint.")
+            typer.echo("Queued. Run `dl simulation list` to find this id later.")
         emit(runtime.json_mode, payload, render_simulation)
 
     _run(ctx, work)
